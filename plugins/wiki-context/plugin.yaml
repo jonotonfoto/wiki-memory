@@ -1,0 +1,5 @@
+name: wiki-context
+version: 1.0.0
+description: "Auto-search wiki memory on every message; inject relevant pages into context."
+hooks:
+  - pre_llm_call

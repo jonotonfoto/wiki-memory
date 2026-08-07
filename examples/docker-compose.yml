@@ -1,0 +1,29 @@
+# Example docker-compose for a Hermes Agent container with wiki-memory mounted.
+# This is a TEMPLATE — replace secrets/paths with your own. No real credentials.
+#
+# The container mounts your host Hermes data dir at /opt/data (HERMES_HOME).
+# wiki-memory src/ and scripts/ are mounted into /opt/data/scripts, plugins into
+# /opt/data/plugins. Run the sweep via the host cron (see INSTALL.md).
+
+services:
+  hermes:
+    image: nousresearch/hermes-agent:latest
+    container_name: hermes
+    restart: unless-stopped
+    command: gateway run
+    ports:
+      - "8642:8642"
+      - "9119:9119"
+    volumes:
+      # Host Hermes data dir -> container HERMES_HOME (/opt/data)
+      - /opt/hermes-data:/opt/data
+      # wiki-memory code (adjust source paths to your checkout)
+      - ./wiki-memory/src:/opt/data/scripts/src
+      - ./wiki-memory/scripts:/opt/data/scripts
+      - ./wiki-memory/plugins:/opt/data/plugins
+    environment:
+      - OPENROUTER_API_KEY=replace_me          # or use .env
+      - TELEGRAM_BOT_TOKEN=replace_me
+      - TELEGRAM_ALLOWED_USERS=replace_me
+    # NVIDIA key for wiki extraction/embeddings — via .env or here
+    # - NVIDIA_API_KEY=replace_me

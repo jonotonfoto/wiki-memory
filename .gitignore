@@ -1,0 +1,32 @@
+# --- Secrets / data (never commit) ---
+.env
+*.env
+!*.env.example
+
+# --- Runtime data ---
+wiki/
+state.db
+*.db
+*.db-wal
+*.db-shm
+*.jsonl
+index.lock
+.index.lock
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# --- Editors / OS ---
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# --- Logs ---
+*.log
+logs/
