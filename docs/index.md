@@ -6,6 +6,8 @@ Table of contents for the Wiki Memory project.
 - [AGENTS.md](../AGENTS.md) — project map (read first)
 - [README.md](../README.md) — overview & quick start
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — system design
+- [CHANGELOG.md](../CHANGELOG.md) — build history (what was built & found)
+- [DECISIONS.md](../DECISIONS.md) — architecture decisions & rationale
 - [INSTALL.md](../INSTALL.md) — setup (Windows / Linux / Docker)
 - [SECURITY.md](../SECURITY.md) — secrets & boundaries
 - [QUALITY_SCORE.md](../QUALITY_SCORE.md) — doc legibility grading

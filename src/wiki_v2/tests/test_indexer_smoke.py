@@ -115,6 +115,7 @@ def test_indexer_skips_active_session(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_STATE_DB", str(tmp_path / "state.db"))
 
     import importlib
+
     import wiki_v2.indexer as idx
     from wiki_v2 import config as _cfg
     _cfg.reload()
@@ -141,6 +142,7 @@ def test_indexer_reindexes_changed_session(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_STATE_DB", str(tmp_path / "state.db"))
 
     import importlib
+
     import wiki_v2.indexer as idx
     from wiki_v2 import config as _cfg
     _cfg.reload()
@@ -168,8 +170,9 @@ def test_indexer_reindexes_changed_session(tmp_path, monkeypatch):
     with patch("wiki_v2.indexer.extract_content", return_value=good), \
          patch("wiki_v2.indexer.embed", return_value=[fake_vec]):
         idx.main()
-    # факт повторной обработки: страниц стало больше (произошёл CREATE/MERGE)
-    assert len(list((wiki / "entities").glob("*.md"))) == 2
+    # Повторная индексация той же темы MERGE'ится в существующую страницу
+    # (порог слияния 0.20 + корневое сравнение) — дубль НЕ создаётся.
+    assert len(list((wiki / "entities").glob("*.md"))) == 1
 
 
 def test_indexer_skips_unchanged_session(tmp_path, monkeypatch):
@@ -181,6 +184,7 @@ def test_indexer_skips_unchanged_session(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_STATE_DB", str(tmp_path / "state.db"))
 
     import importlib
+
     import wiki_v2.indexer as idx
     from wiki_v2 import config as _cfg
     _cfg.reload()

@@ -70,6 +70,7 @@ layers:
 | `session_status.py` | `is_session_finished()` — idle-based detector. |
 | `index_lock.py` | Cross-platform file lock (msvcrt/fcntl), stale reclaim. |
 | `search.py` | Two-tier retrieval (embeddings + keywords) + LLM synthesis. |
+| `cleanup_duplicates.py` | Group pages by slug root; delete true duplicates (same source); skip `untitled`. |
 | `pages.py` | Render/parse/merge markdown pages; Jaccard topic matching. |
 | `slug.py` | Unique slug generation. |
 | `facts_bridge.py` | Queue facts/decisions to `.facts_pending.jsonl`. |
@@ -86,14 +87,27 @@ milliseconds — no FAISS needed. **All vectors must share one dimension**
 Two tiers, merged and re-ranked:
 1. **Semantic:** embed the query, cosine top-K against all page vectors
    (`MIN_SEMANTIC_SCORE=0.40`).
-2. **Keywords:** normalized word overlap against title+summary+content
-   (keyword score capped so semantic wins ties).
+2. **Keywords by roots:** words compared by first-5-letter prefix
+   («сознания» ≈ «сознание»), so inflected forms match. Keyword score capped
+   at `MAX_KEYWORD_SCORE` (0.35) so semantic always wins ties.
 LLM synthesis runs only when there is at least one hit.
+
+### Retrieval quality guards (2026-08-08)
+
+- **Triangulation (`wiki-context`)**: a weak Russian embedder returns garbage in
+  the 0.40–0.60 gray zone. The plugin requires a page's `## Темы` section to
+  share ≥ 2 roots with the query, unless the semantic score is confidently high
+  (≥ `high_confidence`, 0.60).
+- **LRU cache**: `cache.json` answers similar questions instantly (limit 100,
+  TTL 7 days), cutting repeated embed-API calls.
+- **Duplicate cleanup**: `cleanup_duplicates.py` (dry-run by default).
+- **Extractor synonyms**: `extract.py` asks for related concepts in `key_topics`.
 
 ## Plugins
 
 - **`wiki-context`** — `pre_llm_call` hook: on each message ≥15 chars, search the
-  wiki and return a `<wiki-memory>` context block, or `None`.
+  wiki and return a `<wiki-memory>` context block, or `None`. Tunables live in
+  `config.json` (re-read on every request — no restart).
 - **`wiki-session-finalize`** — `on_session_finalize` hook: on `/new`/`/reset`/
   expiry, spawn the indexer for that session in the background.
 
@@ -113,4 +127,4 @@ Both are fail-open and path-resolved via `config`.
 | SQLite + numpy (no FAISS) | Sufficient <1000 pages; zero heavy deps |
 | NVIDIA for LLM + embeddings | One API, one key; free tier |
 | BLOB for vectors | Atomic, simple, fast deserialize (`np.frombuffer`) |
-| Jaccard 0.34 for merge | Empirically balanced merge threshold |
+| Jaccard 0.20 on roots for merge | Lowered from 0.34: extractor adds synonyms, shrinking exact topic overlap |

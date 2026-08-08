@@ -71,6 +71,12 @@ class IndexDB:
     def all_pages(self):
         return [dict(r) for r in self.conn.execute("SELECT * FROM pages")]
 
+    def delete_page(self, slug: str):
+        """Удалить страницу и её эмбеддинг из индекса."""
+        self.conn.execute("DELETE FROM pages WHERE slug=?", (slug,))
+        self.conn.execute("DELETE FROM embeddings WHERE slug=?", (slug,))
+        self.conn.commit()
+
     def set_embedding(self, slug, vector: np.ndarray):
         self.conn.execute(
             "INSERT OR REPLACE INTO embeddings (slug, vector) VALUES (?,?)",

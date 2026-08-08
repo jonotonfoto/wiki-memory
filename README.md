@@ -142,6 +142,29 @@ A file lock (`index_lock.py`) prevents concurrent indexing (cron vs plugin).
 `content_hash` is written **after** a successful card+embedding, so an
 interrupted index is retried (idempotent, no duplicates).
 
+### Retrieval quality (root matching, triangulation, cache, dedup)
+
+Beyond the two-tier search, the retrieval path has several quality guards
+(2026-08-08):
+
+- **Root-based keyword matching** — words are compared by their first 5 letters,
+  so «сознания» ≈ «сознание» and «делегировать» ≈ «делегирование». Keyword
+  score is capped at `MAX_KEYWORD_SCORE` (0.35) so semantic (0.40+) always wins.
+- **Triangulation in `wiki-context`** — a weak Russian embedder can return
+  garbage in the 0.40–0.60 gray zone. The plugin doesn't trust semantics alone:
+  a page passes if the score is confidently high (≥ `high_confidence`, 0.60),
+  **or** the query shares ≥ 2 roots with the page's `## Темы` section.
+- **LRU answer cache** (`cache.json`) — similar questions are answered instantly,
+  cutting repeated embed-API calls (limit 100 entries, TTL 7 days).
+- **`cleanup_duplicates.py`** — groups pages by slug root and deletes true
+  duplicates (same source), skipping `untitled` and differently-sourced groups.
+  Run with `--dry-run` by default; `--apply` deletes.
+- **Extractor synonyms** — the `extract.py` prompt asks Nemotron to add related
+  concepts / synonyms to `key_topics` so abstract queries find pages by meaning.
+
+The plugin's tunables live in `config.json` (re-read on every request — no
+restart). See `CHANGELOG.md` and `DECISIONS.md` for the rationale.
+
 ---
 
 ## Repository layout
@@ -151,6 +174,8 @@ wiki-memory/
 ├── AGENTS.md              # agent map (read first)
 ├── README.md              # this file
 ├── ARCHITECTURE.md        # system design
+├── CHANGELOG.md           # build history
+├── DECISIONS.md           # architecture decisions & rationale
 ├── SECURITY.md            # secrets & boundaries
 ├── INSTALL.md             # install & cron setup (Windows + Linux + Docker)
 ├── QUALITY_SCORE.md       # doc legibility grading
@@ -164,6 +189,7 @@ wiki-memory/
 │   ├── indexer.py         # indexing pipeline
 │   ├── index_db.py        # SQLite store (pages, embeddings, sessions)
 │   ├── search.py          # two-tier search + synthesis
+│   ├── cleanup_duplicates.py  # duplicate/markdown cleanup
 │   ├── session_status.py  # "is session finished?" detector
 │   ├── index_lock.py      # cross-platform file lock
 │   └── tests/             # pytest suite

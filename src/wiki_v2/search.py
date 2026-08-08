@@ -46,7 +46,22 @@ def keyword_hits(query: str, pages: list, k: int = 5):
                     hay += " " + _normalize(f.read())
             except (OSError, UnicodeDecodeError):
                 pass
-        score = sum(1 for w in words if w in hay)
+        score = 0
+        # Сравнение по корням (префикс 5 букв): «сознания» ≈ «сознание»,
+        # «делегировать» ≈ «делегирование». Одно и то же слово в разных
+        # падежах/формах считается одним совпадением.
+        hay_words = set(re.findall(r"\w{3,}", hay))
+        matched = set()
+        for w in words:
+            for hw in hay_words:
+                m = min(len(w), len(hw))
+                if m >= 5 and w[:5] == hw[:5]:
+                    matched.add(w[:5])
+                    break
+                elif m < 5 and w == hw:
+                    matched.add(w)
+                    break
+        score = len(matched)
         if score:
             scored.append((p["slug"], score / max(len(words), 1)))
     scored.sort(key=lambda x: -x[1])
@@ -75,7 +90,10 @@ def search(query: str, k: int = TOP_K):
 
     # Tier 2: keywords (merge, keyword score capped so semantic wins ties)
     for slug, score in keyword_hits(query, list(pages.values()), k=k):
-        capped = min(score * 0.5, MAX_KEYWORD_SCORE)
+        # Не режем вдвое — иначе корневой поиск («сознания»≈«сознание»)
+        # даёт 0.333*0.5=0.166 и отбрасывается как мусор.
+        # Каппим сверху 0.35, чтобы semantic (0.40+) всегда был выше.
+        capped = min(score, MAX_KEYWORD_SCORE)
         if capped < MIN_KEYWORD_SCORE:
             continue  # слишком слабое совпадение — мусор
         if slug not in hits:

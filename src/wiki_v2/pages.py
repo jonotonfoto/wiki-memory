@@ -50,10 +50,10 @@ sources: [{', '.join(sources)}]
 def parse_page(md: str) -> dict:
     """Parse rendered page back into dict (title, fields, sources)."""
     out = {"title": "", "sources": [], **{f: [] for f in FIELDS}}
-    m = re.search(r'^title:\s*"(.+)"', md, re.M)
+    m = re.search(r'^title:\s*"(.+)"', md, re.MULTILINE)
     if m:
         out["title"] = m.group(1)
-    m = re.search(r"^sources:\s*\[(.*)\]", md, re.M)
+    m = re.search(r"^sources:\s*\[(.*)\]", md, re.MULTILINE)
     if m and m.group(1).strip():
         out["sources"] = [s.strip() for s in m.group(1).split(",")]
     section_map = {
@@ -83,16 +83,19 @@ def merge_content(old: dict, new: dict) -> dict:
     return merged
 
 
-def find_merge_target(new_topics: list, candidates: list, threshold: float = 0.34):
-    """Return slug of candidate whose topics overlap >= Jaccard threshold, else None."""
-    new_set = {t.lower() for t in new_topics if t}
+def find_merge_target(new_topics: list, candidates: list, threshold: float = 0.20):
+    """Return slug of candidate whose topics overlap >= threshold, else None.
+    Используем корневое сравнение (первые 5 букв): «сознание» и «сознания»
+    считаются одним. Порог ниже (0.20), потому что экстрактор теперь
+    добавляет синонимы — точное пересечение меньше, но тема та же."""
+    new_set = {t.lower()[:5] for t in new_topics if t}
     if not new_set:
         return None
     best, best_score = None, 0.0
     for cand in candidates:
-        cand_set = {t.lower() for t in (cand.get("key_topics") or [])}
+        cand_set = {t.lower()[:5] for t in (cand.get("key_topics") or [])}
         for word in (cand.get("title") or "").lower().split():
-            cand_set.add(word)
+            cand_set.add(word[:5])
         if not cand_set:
             continue
         inter = len(new_set & cand_set)
