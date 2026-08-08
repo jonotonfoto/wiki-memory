@@ -2,6 +2,28 @@
 
 This changelog records what was BUILT and what was FOUND (not what is planned).
 
+> **Onboarding note for the second Hermes / new agents:** read
+> [`FIXES.md`](FIXES.md) — the dated fix log — before digging into the code.
+
+## 2026-08-08 (evening) — top_k*3 fix + FIXES.md
+
+### Search: keyword hits were squeezed out by semantic garbage
+- Symptom: "father of thinking theory in psychology" didn't find Vygotsky,
+  even though keyword search found it (0.333).
+- Cause: semantic garbage (0.40-0.47) filled top-10; keyword hits (0.333)
+  never made it into the output.
+- Fix: the plugin requests top_k*3 (30) candidates.
+
+### Lesson: the cache goes stale when the algorithm changes
+- After the top_k*3 fix the cache returned the old result.
+- Rule: when the search algorithm changes — clear cache.json.
+
+### FIXES.md (NEW)
+- Dated log of all fixes for the second Hermes / new sessions.
+- Link added in README.md.
+
+---
+
 ## 2026-08-08 — Live-code sync + short-query guard
 
 ### Sync (ops)

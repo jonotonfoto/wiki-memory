@@ -1,5 +1,8 @@
 # Wiki Memory for Hermes Agent
 
+> **New agent / second Hermes:** read [`FIXES.md`](FIXES.md) first — the dated
+> log of every fix, so you're up to speed before touching the code.
+
 ## What this is, in plain words
 
 Think of it as giving your AI assistant a **notebook that never forgets**.
