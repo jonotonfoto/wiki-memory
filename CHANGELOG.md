@@ -2,6 +2,26 @@
 
 This changelog records what was BUILT and what was FOUND (not what is planned).
 
+## 2026-08-08 — Live-code sync + short-query guard
+
+### Sync (ops)
+- Live `~/AppData/Local/hermes/scripts/wiki_v2/` and project `scripts/wiki_v2/`
+  updated to the cross-platform version from `wiki-memory/src/wiki_v2/` (single
+  `config.py`). Previously both held the old Linux variant hardcoded to
+  `/opt/data/wiki`, so CLI search pointed at a non-existent Windows DB and
+  returned "Nothing found" while the `wiki-context` plugin worked (it sets
+  `WIKI_PATH` itself).
+- Verified: CLI search from the live dir now resolves
+  `LOCALAPPDATA\hermes\wiki` and finds VPS info.
+
+### Short-query guard (search.py)
+- Found: a query shorter than 15 chars (`MIN_QUERY_LEN=15`) returns empty
+  immediately — an intentional anti-garbage guard, NOT a bug. "vps" (3) → empty,
+  "статус hermes бота на vps сервере" (30+) → full synthesis. Pitfall recorded
+  in the `wiki-v2-knowledge-base` skill (item 10a).
+
+---
+
 ## 2026-08-08 — Triangulation, cache, duplicate cleanup
 
 ### Search (search.py)
