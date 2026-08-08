@@ -1,5 +1,89 @@
 # Wiki Memory for Hermes Agent
 
+## What this is, in plain words
+
+Think of it as giving your AI assistant a **notebook that never forgets**.
+
+By default, an AI assistant starts each conversation fresh — it remembers only
+what you tell it *in that moment*. Anything you discussed yesterday is gone the
+moment you close the chat. Wiki Memory fixes that: it quietly writes down
+everything useful you talk about, organizes it, and lets the assistant look it
+up later — even weeks or months from now.
+
+It's like the difference between having a **really good friend** who remembers
+every detail of your life, and a stranger you have to re-explain everything to
+every single time you meet.
+
+### A concrete example
+
+> You run a small online store. One day you spend an hour with your assistant
+> figuring out **how to fix a shipping label that keeps printing with the wrong
+> address**. You try a few things, find the cause (the address field had a
+> trailing space), and agree on a fix.
+>
+> A month later, the same bug shows up again. A normal assistant would make you
+> re-explain the whole problem. **With Wiki Memory**, the assistant already knows:
+> *"Last time we found the address field had a trailing space — want me to apply
+> the same fix?"* It remembers the diagnosis, the solution, and even *why*.
+
+That's the whole point: **knowledge you build once becomes knowledge you keep.**
+
+### How it works, in one breath
+
+Every conversation is turned into a short, structured "page" — like a note card
+in an index box. Each card gets a **semantic fingerprint** (an embedding: a list
+of numbers capturing *meaning*, not just words). Later, when the assistant needs
+to recall something, it doesn't do a literal word search — it compares the
+*meaning* of your question against the *meaning* of every card it has saved, and
+pulls up the closest matches. Word-search still backs it up as a fallback.
+
+The technical details (extraction, embeddings, two-tier search, the
+"auto-index finished sessions" system) are below.
+
+---
+
+## Why "wiki + embeddings" is so powerful
+
+Two ordinary ideas become something special when combined:
+
+- **A wiki** = knowledge stored as readable, organized pages. A human (or agent)
+  can open them, skim them, correct them. It's *your* knowledge, in a form you
+  can see and trust.
+- **Embeddings** = every page gets a *meaning fingerprint*. The system
+  understands what a page is *about*, not just which words appear in it.
+
+### The magic is the *combination*
+
+A wiki alone is just files — great for browsing, useless for "find me what I
+need right now." Embeddings alone give you fuzzy "related stuff" but no
+structure you can read or edit. Together:
+
+1. **You read and edit the wiki** (it's human-friendly markdown).
+2. **The agent finds meaning** (via embeddings) — even when your question uses
+   completely different words than the page does.
+
+### Example: synonyms don't break recall
+
+> One day you and your assistant talk about **"fixing the printer that prints
+> blank pages"**. The assistant saves a page about it.
+>
+> Weeks later you ask: **"why does the office copier spit out empty sheets?"**
+>
+> A plain keyword search would find *nothing* — the words "printer", "blank",
+> and "fix" don't appear in your new question ("copier", "empty sheets").
+>
+> **With embeddings**, the assistant sees that "printer ≈ copier",
+> "blank pages ≈ empty sheets" — the *meaning* matches — and pulls up the right
+> page instantly, even though you used entirely different words.
+
+That's the core strength: **the assistant understands what you mean, not just
+what you say.** A wiki gives it a trustworthy, editable memory; embeddings give
+it the ability to find the right memory at the right moment.
+
+---
+
+## Quick overview (technical)
+
 Automatically turns Hermes Agent conversations into a durable, searchable
 knowledge base. Each session is extracted (via an NVIDIA LLM), validated,
 merged into markdown pages with semantic embeddings (SQLite + numpy), and made
