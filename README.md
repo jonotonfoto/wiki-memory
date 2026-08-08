@@ -169,6 +169,8 @@ wiki-memory/
 │   └── tests/             # pytest suite
 ├── scripts/               # entry points (run_indexer, run_sweep, facts bridge)
 ├── plugins/               # Hermes plugins (wiki-context, wiki-session-finalize)
+├── skills/                # Hermes skill tap (SKILL.md)
+├── promo/                 # ready-to-post announcements (Discord, HN, Reddit, X)
 ├── examples/              # sample configs / docker-compose
 ├── pyproject.toml
 └── .env.example
@@ -200,6 +202,28 @@ python -m wiki_v2.search "how does networking work"
 ```
 
 See **INSTALL.md** for full desktop / server / Docker setup.
+
+---
+
+## Install as a Hermes skill tap
+
+The repo is structured as a Hermes **skills tap** — Hermes users can add it and
+install the skill directly from GitHub:
+
+```bash
+hermes skills tap add jonotonfoto/wiki-memory
+hermes skills install wiki-memory   # or browse with: hermes skills search wiki-memory
+```
+
+This makes the skill (setup/repair instructions) available to any Hermes agent,
+alongside the code in this repo.
+
+---
+
+## Spreading the word
+
+Ready-to-post announcements for Discord, Hacker News, Reddit, and X are in
+[`promo/`](promo/README.md) — human, no-fluff copy you can copy-paste.
 
 ---
 
