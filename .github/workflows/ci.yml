@@ -15,9 +15,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       PYTHONPATH: src
-      # тестам не нужен реальный LLM/embed-бэкенд: сетевые вызовы замоканы,
-      # а отсутствие ключей покрывается fail-open ветками.
-      WIKI_EMBED_BACKEND: nvidia
+      # ВАЖНО: НЕ задавать WIKI_EMBED_BACKEND=nvidia здесь. Тесты рассчитаны
+      # на офлайн-бэкенд по умолчанию (llamaserver -> connection refused):
+      # это детерминированный «embed недоступен», на котором построены
+      # fail-open сценарии индексации. nvidia ходил бы в реальный API.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
