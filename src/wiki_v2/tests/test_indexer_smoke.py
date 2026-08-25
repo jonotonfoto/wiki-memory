@@ -41,7 +41,9 @@ def test_indexer_end_to_end(tmp_path, monkeypatch):
     import numpy as np
     fake_vec = np.random.rand(1024).astype(np.float32)
     with patch("wiki_v2.indexer.extract_content", return_value=good), \
-         patch("wiki_v2.indexer.embed", return_value=[fake_vec]):
+         patch("wiki_v2.indexer.embed", return_value=[fake_vec]), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True):
         idx.main()
 
     pages = list((wiki / "entities").glob("*.md"))
@@ -52,7 +54,9 @@ def test_indexer_end_to_end(tmp_path, monkeypatch):
 
     # Second run: session already indexed → no new pages
     with patch("wiki_v2.indexer.extract_content", return_value=good), \
-         patch("wiki_v2.indexer.embed", return_value=[fake_vec]):
+         patch("wiki_v2.indexer.embed", return_value=[fake_vec]), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True):
         idx.main()
     assert len(list((wiki / "entities").glob("*.md"))) == 1
 
@@ -80,13 +84,17 @@ def test_indexer_single_session_mode(tmp_path, monkeypatch):
 
     # single-session mode indexes ONLY the given session
     with patch("wiki_v2.indexer.extract_content", return_value=good), \
-         patch("wiki_v2.indexer.embed", return_value=[fake_vec]):
+         patch("wiki_v2.indexer.embed", return_value=[fake_vec]), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True):
         idx.main(session_id="s1")
     assert len(list((wiki / "entities").glob("*.md"))) == 1
 
     # unknown session id → nothing indexed, no crash
     with patch("wiki_v2.indexer.extract_content", return_value=good), \
-         patch("wiki_v2.indexer.embed", return_value=[fake_vec]):
+         patch("wiki_v2.indexer.embed", return_value=[fake_vec]), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True):
         idx.main(session_id="nope")
     assert len(list((wiki / "entities").glob("*.md"))) == 1
 
@@ -128,7 +136,9 @@ def test_indexer_skips_active_session(tmp_path, monkeypatch):
 
     # фоновая индексация НЕ трогает активную сессию
     with patch("wiki_v2.indexer.extract_content", return_value=good), \
-         patch("wiki_v2.indexer.embed", return_value=[fake_vec]):
+         patch("wiki_v2.indexer.embed", return_value=[fake_vec]), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True):
         idx.main()
     assert len(list((wiki / "entities").glob("*.md"))) == 0
 
@@ -155,7 +165,9 @@ def test_indexer_reindexes_changed_session(tmp_path, monkeypatch):
     fake_vec = np.random.rand(1024).astype(np.float32)
 
     with patch("wiki_v2.indexer.extract_content", return_value=good), \
-         patch("wiki_v2.indexer.embed", return_value=[fake_vec]):
+         patch("wiki_v2.indexer.embed", return_value=[fake_vec]), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True):
         idx.main()
     assert len(list((wiki / "entities").glob("*.md"))) == 1
 
@@ -168,7 +180,9 @@ def test_indexer_reindexes_changed_session(tmp_path, monkeypatch):
 
     # Повторный проход: сессия изменилась → переиндексируется (НЕ пропущена как неизменённая)
     with patch("wiki_v2.indexer.extract_content", return_value=good), \
-         patch("wiki_v2.indexer.embed", return_value=[fake_vec]):
+         patch("wiki_v2.indexer.embed", return_value=[fake_vec]), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True):
         idx.main()
     # Повторная индексация той же темы MERGE'ится в существующую страницу
     # (порог слияния 0.20 + корневое сравнение) — дубль НЕ создаётся.
@@ -197,13 +211,17 @@ def test_indexer_skips_unchanged_session(tmp_path, monkeypatch):
     fake_vec = np.random.rand(1024).astype(np.float32)
 
     with patch("wiki_v2.indexer.extract_content", return_value=good), \
-         patch("wiki_v2.indexer.embed", return_value=[fake_vec]):
+         patch("wiki_v2.indexer.embed", return_value=[fake_vec]), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True):
         idx.main()
     assert len(list((wiki / "entities").glob("*.md"))) == 1
 
     # Повторный проход БЕЗ изменения содержимого → hash не изменился → пропуск
     with patch("wiki_v2.indexer.extract_content", return_value=good), \
-         patch("wiki_v2.indexer.embed", return_value=[fake_vec]):
+         patch("wiki_v2.indexer.embed", return_value=[fake_vec]), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True):
         idx.main()
     assert len(list((wiki / "entities").glob("*.md"))) == 1
 
@@ -259,7 +277,9 @@ def test_indexer_service_title_falls_back_to_first_user(tmp_path, monkeypatch):
     fake_vec = np.random.rand(1024).astype(np.float32)
 
     with patch("wiki_v2.indexer.extract_content", return_value=good), \
-         patch("wiki_v2.indexer.embed", return_value=[fake_vec]):
+         patch("wiki_v2.indexer.embed", return_value=[fake_vec]), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True):
         idx.main(session_id="srv")
 
     pages = list((wiki / "entities").glob("*.md"))
@@ -354,7 +374,9 @@ def test_indexer_stale_stop_flag_does_not_block(tmp_path, monkeypatch):
     fake_vec = np.random.rand(1024).astype(np.float32)
 
     with patch("wiki_v2.indexer.extract_content", return_value=good), \
-         patch("wiki_v2.indexer.embed", return_value=[fake_vec]):
+         patch("wiki_v2.indexer.embed", return_value=[fake_vec]), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True):
         idx.main()
 
     # Сессия проиндексирована, НЕ остановлена залипшим флагом

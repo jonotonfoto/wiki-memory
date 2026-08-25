@@ -86,6 +86,8 @@ def test_replace_crash_leaves_pending_and_tmp(tmp_path, monkeypatch):
 
 
     with patch("wiki_v2.indexer.extract_content", return_value=_GOOD_CONTENT), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True), \
          patch("wiki_v2.indexer.embed", return_value=[fake_vec]), \
          patch("wiki_v2.atomic.os.replace", side_effect=boom):
         # process_session should raise when os.replace fails
@@ -147,6 +149,8 @@ def test_startup_cleans_pending_orphans(tmp_path, monkeypatch):
     # Run main() — cleanup_pending() should fire at startup and remove orphan.
     fake_vec = np.random.rand(1024).astype(np.float32)
     with patch("wiki_v2.indexer.extract_content", return_value=_GOOD_CONTENT), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True), \
          patch("wiki_v2.indexer.embed", return_value=[fake_vec]):
         idx.main()  # no sessions to index (s1 already «completed» → resolved)
         # NOTE: _resolve_sessions will skip s1 (already indexed? no — but
@@ -192,6 +196,8 @@ def test_startup_recovers_valid_md_when_pending(tmp_path, monkeypatch):
     # Фоновая индексация (без session_id): s1 помечена индексированной → 
     # _resolve_sessions пропустит её → main() только почистит PENDING.
     with patch("wiki_v2.indexer.extract_content", return_value=_GOOD_CONTENT), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True), \
          patch("wiki_v2.indexer.embed",
                return_value=[np.zeros(1024, dtype=np.float32)]):
         idx.main()
@@ -223,6 +229,8 @@ def test_successful_write_finalizes_hash(tmp_path, monkeypatch):
 
     fake_vec = np.random.rand(1024).astype(np.float32)
     with patch("wiki_v2.indexer.extract_content", return_value=_GOOD_CONTENT), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True), \
          patch("wiki_v2.indexer.embed", return_value=[fake_vec]):
         idx.main(session_id="s1")
 
@@ -260,6 +268,8 @@ def test_embed_failure_still_marks_session(tmp_path, monkeypatch):
 
     # embed_text_for_page бросает исключение (имитация лимита NVIDIA)
     with patch("wiki_v2.indexer.extract_content", return_value=_GOOD_CONTENT), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True), \
          patch("wiki_v2.indexer.embed_text_for_page",
                side_effect=RuntimeError("429 Too Many Requests")):
         processed = idx.main(session_id="s1")
@@ -277,6 +287,8 @@ def test_embed_failure_still_marks_session(tmp_path, monkeypatch):
 
     # Второй запуск — сессия НЕ переиндексируется (нет дублей)
     with patch("wiki_v2.indexer.extract_content", return_value=_GOOD_CONTENT), \
+         patch("wiki_v2.indexer.embed_api_available", return_value=True), \
+         patch("wiki_v2.indexer.chat_available", return_value=True), \
          patch("wiki_v2.indexer.embed_text_for_page",
                side_effect=RuntimeError("429 Too Many Requests")):
         idx.main(session_id="s1")
