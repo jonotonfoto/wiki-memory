@@ -83,22 +83,26 @@ def main() -> int:
         record("FAIL", "pyyaml missing",
                "endpoints.yaml will be SILENTLY ignored — pip install pyyaml")
 
-    # 4. embedding endpoint reachability
+    # 4. embedding endpoint reachability — через ПРОДАКШН-резолюцию
+    # (env поверх yaml, как в nvidia_client._embed_endpoint). Питфолл
+    # 2026-08-26: чтение сырого endpoints.yaml отправляло doctor не туда,
+    # куда реально ходит код (env LLAMASERVER_URL игнорировался).
     url = model = None
-    epcfg = {}
     try:
-        from wiki_v2 import endpoints
+        from wiki_v2 import endpoints as _ep
 
-        epcfg = endpoints.load()
-        backend = os.environ.get(
-            "WIKI_EMBED_BACKEND",
-            epcfg.get("embed", {}).get("backend", "nvidia"),
-        )
-        ep = epcfg.get("embed", {}).get(backend, {})
-        url, model = ep.get("url"), ep.get("model")
-        record("PASS", "endpoints.yaml loads", f"backend={backend}")
+        _ep.load()
+        record("PASS", "endpoints.yaml loads")
     except Exception as exc:
         record("WARN", "endpoints.yaml", repr(exc))
+    try:
+        from wiki_v2.nvidia_client import _embed_endpoint
+
+        url, model, _needs_input_type = _embed_endpoint()
+        backend = getattr(config, "EMBED_BACKEND", "?")
+        record("PASS", "embed endpoint resolved", f"backend={backend}")
+    except Exception as exc:
+        record("WARN", "embed endpoint resolve failed", repr(exc))
         url = url or getattr(config, "LMSTUDIO_URL", None)
         model = model or getattr(config, "LMSTUDIO_MODEL", None)
     if url:
@@ -119,8 +123,14 @@ def main() -> int:
 
     # 4b. chat endpoint for extraction (key presence, no echo)
     key = os.environ.get("NVIDIA_API_KEY", "")
-    chat_url = os.environ.get("NVIDIA_API_URL") or getattr(config, "NVIDIA_CHAT_URL", None) or \
-        epcfg.get("chat", {}).get("url")
+    chat_url = os.environ.get("NVIDIA_API_URL") or getattr(config, "NVIDIA_CHAT_URL", None)
+    if not chat_url:
+        try:
+            from wiki_v2 import endpoints as _ep_chat
+
+            chat_url = _ep_chat.load().get("chat", {}).get("url")
+        except Exception:
+            pass
     if key and chat_url:
         record("PASS", "extraction: API key present", chat_url)
     elif chat_url:
