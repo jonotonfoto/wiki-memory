@@ -13,11 +13,16 @@
 # ---------------------------------------------------------------------------
 import importlib.util
 import json
+import os
 import time
+from pathlib import Path
 
-_PLUGIN_PATH = (
-    "%LOCALAPPDATA%/hermes/plugins/wiki-context/__init__.py"
-)
+# Плагин ищем сначала в git-checkout (repo/plugins/...), затем в живой установке.
+_CANDIDATES = [
+    Path(__file__).resolve().parents[3] / "plugins" / "wiki-context" / "__init__.py",
+    Path(os.path.expandvars(r"%LOCALAPPDATA%\hermes\plugins\wiki-context\__init__.py")),
+]
+_PLUGIN_PATH = next((p for p in _CANDIDATES if p.exists()), _CANDIDATES[0])
 spec = importlib.util.spec_from_file_location(
     "wiki_context_plugin", _PLUGIN_PATH
 )

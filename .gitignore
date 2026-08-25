@@ -21,3 +21,6 @@ logs/
 profiles/*.env
 !profiles/*.env.example
 .env
+
+# plugin runtime state
+plugins/*/cache.json

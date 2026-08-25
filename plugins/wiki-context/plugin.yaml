@@ -1,0 +1,5 @@
+name: wiki-context
+version: 1.0.0
+description: "Автоматический поиск по wiki-памяти при каждом сообщении. Подтягивает релевантные страницы в контекст."
+hooks:
+  - pre_llm_call

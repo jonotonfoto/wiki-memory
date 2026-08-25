@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONPATH: src
+      # тестам не нужен реальный LLM/embed-бэкенд: сетевые вызовы замоканы,
+      # а отсутствие ключей покрывается fail-open ветками.
+      WIKI_EMBED_BACKEND: nvidia
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install deps
+        run: pip install numpy requests pyyaml pytest
+      - name: Run test suite (invariants)
+        run: python -m pytest src/wiki_v2/tests -q

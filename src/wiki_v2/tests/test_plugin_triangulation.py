@@ -9,14 +9,22 @@
 import importlib.util
 import os
 import sys
+from pathlib import Path
 
-PLUGIN_PATH = r"%LOCALAPPDATA%\hermes\plugins\wiki-context\__init__.py"
+import pytest
+
+# Плагин ищем сначала в git-checkout (repo/plugins/...), затем в живой установке.
+_CANDIDATES = [
+    Path(__file__).resolve().parents[3] / "plugins" / "wiki-context" / "__init__.py",
+    Path(os.path.expandvars(r"%LOCALAPPDATA%\hermes\plugins\wiki-context\__init__.py")),
+]
+PLUGIN_PATH = next((p for p in _CANDIDATES if p.exists()), _CANDIDATES[0])
 spec = importlib.util.spec_from_file_location("wiki_context_4g", PLUGIN_PATH)
 mod = importlib.util.module_from_spec(spec)
 try:
     spec.loader.exec_module(mod)
-except Exception:
-    pass
+except Exception as _exc:  # noqa: BLE001 — файл недоступен вне живой установки
+    pytest.skip(f"plugin file not available: {_exc}", allow_module_level=True)
 
 _topic_match = mod._topic_match
 _common_roots = mod._common_roots

@@ -1,7 +1,9 @@
 # Wiki Memory v3 for Hermes Agent
 
+[![CI](https://github.com/jonotonfoto/wiki-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/jonotonfoto/wiki-memory/actions/workflows/ci.yml)
+
 > Semantic memory that turns agent conversations into a durable, searchable
-> knowledge base. Successor of [wiki-memory v2](../../wiki-memory) — same idea,
+> knowledge base. Successor of [wiki-memory v2](../../wiki-memory) вЂ” same idea,
 > rebuilt around multi-vector retrieval, a local-first embedding backend, and
 > an observability dashboard.
 

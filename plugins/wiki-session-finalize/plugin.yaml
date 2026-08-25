@@ -1,0 +1,5 @@
+name: wiki-session-finalize
+version: 1.0.0
+description: "Мгновенная доиндексация завершённой сессии при /new или /reset (on_session_finalize)."
+hooks:
+  - on_session_finalize
