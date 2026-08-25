@@ -70,7 +70,8 @@ _FIELDS = ["key_topics", "decisions", "facts", "links", "entities", "concepts"]
 
 # Бюджет LLM-вызовов на один прогон сессии: при исчерпании extract идёт в fallback,
 # а не продолжает retry (иначе reasoning-empty → вечный перебор temp).
-EXTRACT_MAX_LLM_CALLS = 6
+# Настраивается env WIKI_EXTRACT_MAX_LLM_CALLS (free-tier NIM: больше 6 = риск 429-блокировки).
+EXTRACT_MAX_LLM_CALLS = int(os.environ.get("WIKI_EXTRACT_MAX_LLM_CALLS", "6"))
 
 _llm_calls = 0  # модульный счётчик вызовов chat_completion на текущий прогон
 _LLM_LOCK = threading.Lock()  # MAP считает вызовы из параллельных потоков

@@ -41,6 +41,14 @@ try:
     MAX_SESSIONS_PER_RUN = max(1, int(os.environ.get("WIKI_MAX_SESSIONS_PER_RUN", "5")))
 except (TypeError, ValueError):
     MAX_SESSIONS_PER_RUN = 5
+
+# Суб-батч эмбеддингов чанков: сколько текстов уходит в ОДИН embed()-вызов.
+# Большой единый запрос (все чанки сессии) даёт пик памяти на бэкенде
+# (OOM llama-server на VPS при MemoryMax=800M) и риск клиентского таймаута.
+try:
+    EMBED_SUBBATCH = max(1, int(os.environ.get("WIKI_EMBED_SUBBATCH", "8")))
+except (TypeError, ValueError):
+    EMBED_SUBBATCH = 8
 MAX_SESSION_MESSAGES = int(os.environ.get("WIKI_MAX_SESSION_MESSAGES", "2000"))  # сессии крупнее — в список на анализ, не индексируем
 CHUNK_LIMIT = 8000
 IDLE_MINUTES = int(os.environ.get("WIKI_IDLE_MINUTES", "32"))
@@ -188,24 +196,34 @@ def embed_multivector(title: str, summary: str, topics: list) -> dict:
 def embed_chunks(title: str, chunks: list, kind_prefix: str = "chunk") -> dict:
     """S2.5.8d: эмбеддинги на ЧАНКИ (kind='chunk').
 
-    Каждый чанк эмбеддится отдельно (одним batch-вызовом embed), kind='chunk'.
-    Мусорные чанки (is_junk_chunk) НЕ эмбеддятся, но индекс kind соответствует
-    ИСХОДНОМУ индексу чанка в списке (чтобы 'chunk:N' — это тот же N, что в split_text).
-    Возвращает {f"chunk:{i}": vector}. fail-open: на любой ошибке → {} (чанки без вектора).
+    Чанки эмбеддятся суб-батчами по EMBED_SUBBATCH текстов на HTTP-вызов,
+    kind='chunk'. Мусорные чанки (is_junk_chunk) НЕ эмбеддятся, но индекс
+    kind соответствует ИСХОДНОМУ индексу чанка в списке (чтобы 'chunk:N' — это
+    тот же N, что в split_text).
+    Возвращает {f"chunk:{i}": vector}. fail-open: ошибка суб-батча → его чанки
+    без вектора; ошибка до эмбеддинга → {} (чанки без вектора).
+
+    Суб-батчинг (2026-08-25): ОДИН запрос со всеми чанками длинной сессии
+    (десятки тысяч токенов) ронял llama-server на VPS в OOM-килл
+    (MemoryMax=800M при базовых ~540M) → шторм 502/timeout у клиента.
+    Маленькие порции держат пик памяти бэкенда в пределах лимита и не
+    превышают клиентский таймаут 60с.
     """
     if not chunks:
         return {}
     try:
         # Фильтруем мусорные чанки ДО эмбеддинга, сохраняя исходные индексы.
         embedding_targets = [(i, c) for i, c in enumerate(chunks) if not is_junk_chunk(c)]
-        texts = [f"{title}\n{c}" for i, c in embedding_targets]
-        vecs = embed(texts, input_type="passage")
-        if vecs is None or len(vecs) == 0:
-            return {}
-        result = {}
-        for (orig_i, _c), v in zip(embedding_targets, vecs[:len(embedding_targets)]):
-            if v is not None:
-                result[f"{kind_prefix}:{orig_i}"] = np.array(v, dtype=np.float32)
+        result: dict = {}
+        for start in range(0, len(embedding_targets), EMBED_SUBBATCH):
+            sub = embedding_targets[start:start + EMBED_SUBBATCH]
+            texts = [f"{title}\n{c}" for _i, c in sub]
+            vecs = embed(texts, input_type="passage")
+            if vecs is None or len(vecs) == 0:
+                continue  # fail-open: этот суб-батч останется без векторов
+            for (orig_i, _c), v in zip(sub, vecs[:len(sub)]):
+                if v is not None:
+                    result[f"{kind_prefix}:{orig_i}"] = np.array(v, dtype=np.float32)
         return result
     except Exception:
         return {}
