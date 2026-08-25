@@ -60,6 +60,7 @@ def main() -> int:
 
     # 4. embedding endpoint reachability
     url = model = None
+    epcfg = {}
     try:
         from wiki_v2 import endpoints
 
@@ -90,6 +91,19 @@ def main() -> int:
             record("FAIL", "embed endpoint", f"{url}: {exc!r}")
     else:
         record("WARN", "embed endpoint unknown", "set WIKI_EMBED_URL / backend config")
+
+    # 4b. chat endpoint for extraction (key presence, no echo)
+    key = os.environ.get("NVIDIA_API_KEY", "")
+    chat_url = os.environ.get("NVIDIA_API_URL") or getattr(config, "NVIDIA_CHAT_URL", None) or \
+        epcfg.get("chat", {}).get("url")
+    if key and chat_url:
+        record("PASS", "extraction: API key present", chat_url)
+    elif chat_url:
+        record("WARN", "extraction: no NVIDIA_API_KEY",
+               "indexing will fail; search works keyword-only")
+    else:
+        record("WARN", "extraction: no chat endpoint configured",
+               "re-run install with --chat-url/--chat-key or set NVIDIA_API_KEY")
 
     # 5. optional end-to-end search
     if args.search:

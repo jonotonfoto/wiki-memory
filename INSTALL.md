@@ -9,20 +9,38 @@ variables (`profiles/`), never in the code.
 git clone https://github.com/jonotonfoto/wiki-memory.git
 cd wiki-memory
 
-# Desktop (Windows): code into %LOCALAPPDATA%\hermes
-python tools/install.py --profile desktop
+# Fresh desktop machine: code + local CPU embedding server (~640 MB download)
+python tools/install.py --profile desktop --with-embed-server
+
+# Machine that already has an embeddings endpoint (LM Studio, llama.cpp, ...)
+python tools/install.py --profile desktop --embed-url http://127.0.0.1:11435/v1/embeddings
 
 # VPS (Linux/Docker): code into /opt/hermes-data (host view of /opt/data)
 python tools/install.py --profile vps
-
-# Smoke test
-python tools/doctor.py
 ```
 
-The installer is idempotent — re-running it updates the installation and
-backs up the previous copy (`*.bak.<timestamp>`, two newest kept). It prints
-the environment to inject and a post-install checklist; it never touches the
-agent's own `.env` or `config.yaml`.
+### Extraction needs a CHAT endpoint — don't skip this
+
+Embeddings only power *search*. **Indexing** distills sessions into pages using
+a chat LLM. Provide it during install:
+
+```bash
+# free NVIDIA cloud key (build.nvidia.com):
+export NVIDIA_API_KEY=nvapi-...          # or pass --chat-key
+
+# or any OpenAI-compatible server (LM Studio, llama-server, vLLM):
+python tools/install.py --profile desktop \
+    --chat-url http://127.0.0.1:1234/v1/chat/completions --chat-model <model> --chat-key KEY
+```
+
+If neither is given the installer prints a prominent warning; search still
+works (keyword-only) until a chat backend exists. `tools/doctor.py` reports
+the same as WARN.
+
+The installer is idempotent — re-running updates and backs up the previous
+copy (`*.bak.<timestamp>`, two newest kept). Resolved values are written to
+`profiles/<profile>.env` (gitignored). It never touches the agent's own
+`.env` or `config.yaml`.
 
 ## Common prerequisites
 
