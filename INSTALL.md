@@ -3,6 +3,27 @@
 One codebase, two supported deployments. Differences live in environment
 variables (`profiles/`), never in the code.
 
+## Fast install
+
+```bash
+git clone https://github.com/jonotonfoto/wiki-memory.git
+cd wiki-memory
+
+# Desktop (Windows): code into %LOCALAPPDATA%\hermes
+python tools/install.py --profile desktop
+
+# VPS (Linux/Docker): code into /opt/hermes-data (host view of /opt/data)
+python tools/install.py --profile vps
+
+# Smoke test
+python tools/doctor.py
+```
+
+The installer is idempotent — re-running it updates the installation and
+backs up the previous copy (`*.bak.<timestamp>`, two newest kept). It prints
+the environment to inject and a post-install checklist; it never touches the
+agent's own `.env` or `config.yaml`.
+
 ## Common prerequisites
 
 - Python 3.10+ with `numpy` and `requests`
