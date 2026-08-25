@@ -1,0 +1,35 @@
+# llama.cpp embed server for wiki-memory v3 (small VPS, 1 CPU core, ~2 GB RAM)
+#
+# Install:
+#   sed -e 's|@LLAMA_SERVER@|/opt/hermes-data/wiki-embed/bin/llama-server|' \
+#       -e 's|@MODEL_FILE@|/opt/hermes-data/wiki-embed/model/Qwen3-Embedding-0.6B-Q8_0.gguf|' \
+#       llama-embed.service.template > /etc/systemd/system/llama-embed.service
+#   systemctl daemon-reload && systemctl enable --now llama-embed
+#
+# Why these exact flags (2026-05-25 production incident, do not "simplify"):
+#   -b 512 -ub 128   physical ubatch 128 instead of the 512 default shrinks
+#                    compute buffers ~4x. With the default, a single batch of
+#                    8+ chunk embeddings pushed anon RSS past the cgroup cap
+#                    and the kernel OOM-killed the server mid-sweep.
+#   -np 1            one slot instead of 4: embed clients are sequential,
+#                    extra slots only multiply KV/buffer memory.
+#   MemoryMax=800M   hard ceiling so a spike can never OOM-kill the bot or
+#                    other containers on the box.
+#   NOTE: Ubuntu kernels ship with swap accounting disabled (no
+#   memory.swap.* files in the cgroup), so MemorySwapMax is IGNORED —
+#   do not rely on swap to absorb spikes; shrink the batch instead.
+
+[Unit]
+Description=wiki-memory v3 embed server (llama.cpp)
+After=network.target
+
+[Service]
+Type=simple
+Environment=LD_LIBRARY_PATH=@LLAMA_DIR@
+ExecStart=@LLAMA_SERVER@ -m @MODEL_FILE@ --embedding --threads 1 -c 512 -b 512 -ub 128 -np 1 --pooling last --port 11435 --host 127.0.0.1
+Restart=on-failure
+RestartSec=5
+MemoryMax=800M
+
+[Install]
+WantedBy=multi-user.target

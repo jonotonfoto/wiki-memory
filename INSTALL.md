@@ -21,10 +21,13 @@ Differences live in environment variables — never in the code.
 
 ## Requirements
 
-- **Python 3.10+** with `numpy` and `requests`:
+- **Python 3.10+** with `numpy`, `requests` and `pyyaml`:
   ```bash
-  pip install numpy requests
+  pip install numpy requests pyyaml
   ```
+  Without **pyyaml**, `endpoints.yaml` is *silently ignored* and the code
+  falls back to built-in defaults (wrong backend/URL) with no error message —
+  `tools/doctor.py` checks for it explicitly.
 - **Hermes Agent** (sessions DB + plugin system) — needed for auto-indexing.
 - An OpenAI-compatible **embeddings endpoint** (for search & indexing):
   - none yet? use `--with-embed-server` and one will be downloaded (~640 MB);
@@ -76,14 +79,37 @@ python tools/install.py --profile vps                 # target /opt/hermes-data
 python tools/install.py --profile vps --target /srv/hermes-data
 ```
 
-Notes:
+On a VPS the installer additionally generates:
+
+- `<target>/wiki.env` + `<target>/bin/wiki_sweep_cron.sh` — the cron entry
+  point that sources the wiki env AND the agent's own `.env` (chat API keys
+  live there, never in git) before running the sweep loader;
+- with `--with-embed-server`: the hardened systemd embed stack in
+  `<target>/wiki-embed/systemd/` — memory-hardened llama-server unit,
+  wake-on-request proxy, idle-unload watchdog. Enable instructions are
+  printed; background: `deploy/vps/README.md`.
+
+VPS-specific lessons (all baked into the generated files):
+
+- **Docker networking**: containers reach host ports ONLY through the bridge
+  gateway IP (`172.20.0.1` on the default network), never via `127.0.0.1`.
+  Point `WIKI_EMBED_URL` at `http://172.20.0.1:<port>/v1/embeddings` and open
+  the firewall for the docker subnet:
+  `ufw allow from 172.20.0.0/16 to any port <port> proto tcp`.
+- **Memory-hardened llama-server** (`-ub 128 -np 1`, `MemoryMax=800M`): with
+  stock flags, one batch of 8+ chunk embeddings OOM-kills llama-server inside
+  the cgroup limit and every batch turns into a 502/timeout retry storm.
+  Swap does NOT help — Ubuntu kernels ignore cgroup swap limits.
+  Client-side counterpart: `WIKI_EMBED_SUBBATCH` (chunk texts per request).
+- **Cron must run as the app user**: `docker exec -u hermes hermes /bin/sh
+  /opt/data/bin/wiki_sweep_cron.sh`. A cron line without `-u` silently
+  recreates root-owned files and breaks writes.
+
+Other notes:
 
 - The installer prints the ownership fix you must run on the host:
   `chown -R 10000:10000 /opt/hermes-data`
 - Small boxes: skip the dashboard, prefer a quantized embedding model on CPU.
-- Host cron must always use the app user:
-  `docker exec -u hermes hermes python /opt/data/scripts/...` — a cron line
-  without `-u` silently recreates root-owned files and breaks writes.
 - `--target` scopes EVERYTHING (code and data dir) under that path.
 
 ### Common options
@@ -133,7 +159,10 @@ chat backend is configured. `tools/doctor.py` reports this state as WARN.
    (see next section).
 4. **Resolves configuration**: profile defaults + your flags are written to
    `profiles/<profile>.env` (gitignored — keys never reach git).
-5. **Prints** the final environment and a post-install checklist.
+5. **VPS only**: generates `<target>/wiki.env` + the cron wrapper
+   `<target>/bin/wiki_sweep_cron.sh`; with `--with-embed-server` also the
+   hardened systemd embed stack (see Scenario C).
+6. **Prints** the final environment and a post-install checklist.
 
 The installer never edits the agent's own `.env` or `config.yaml`.
 
@@ -219,6 +248,9 @@ one-time v2 migration above).
 | Symptom | Cause / fix |
 |---|---|
 | doctor: `embed endpoint HTTP 410/404` | wrong backend selected — set the right one via `--embed-url` / profile env (`WIKI_EMBED_BACKEND`) |
+| doctor: `pyyaml missing` (FAIL) | endpoints.yaml is being silently ignored — `pip install pyyaml`, then re-check |
+| embed batches fail with 502 storms / read timeouts | llama-server OOM-killed inside its cgroup — use the hardened unit flags from `deploy/vps/` (`-ub 128 -np 1`, MemoryMax) and keep `WIKI_EMBED_SUBBATCH` at 8 or lower; swap limits do not work on Ubuntu kernels |
+| long sessions stop extracting tags mid-way (`бюджет LLM-вызовов исчерпан`) | per-session LLM budget hit — raise `WIKI_EXTRACT_MAX_LLM_CALLS` (default 6; on free-tier NVIDIA NIM >12 risks 429-blocking) |
 | doctor: `no NVIDIA_API_KEY` WARN | indexing disabled until you add a chat backend (see [Extraction](#extraction-backend--required-for-indexing)) |
 | search returns keyword-only results | embeddings endpoint down or empty index — check embed server, run the sweep |
 | first indexer run crashes: `No such file or directory: ...entities\<slug>.md` | stale pages table pointing at deleted files — ensure ALL six tables were cleared (the v2 auto-migration handles this) |

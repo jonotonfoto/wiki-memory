@@ -43,7 +43,8 @@ DEFAULT_TARGETS = {
 }
 
 BACKUP_KEEP = 2
-EMBED_PORT = "11435"
+EMBED_PORT = "11436"          # wake-on-request proxy port (backend on 11435)
+EMBED_BACKEND_PORT = "11435"
 EMBED_MODEL_FILE = "Qwen3-Embedding-0.6B-Q8_0.gguf"
 EMBED_MODEL_URL = (
     "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/"
@@ -54,6 +55,38 @@ ASSET_RE = {
     "desktop": re.compile(r"llama-.+-bin-win-cpu-x64\.zip$", re.I),
     "vps": re.compile(r"llama-.+-bin-ubuntu-x64\.tar\.gz$", re.I),
 }
+
+# Memory-hardened llama-server flags for small VPS boxes. Do not remove:
+# with the defaults, one batch of 8+ chunk embeddings OOM-kills llama-server
+# inside MemoryMax=800M (see deploy/vps/README.md). -ub 128 shrinks compute
+# buffers ~4x, -np 1 drops unused slots; embed clients are sequential.
+VPS_LLAMA_FLAGS = "--threads 1 -c 512 -b 512 -ub 128 -np 1"
+
+REQUIRED_IMPORTS = ("numpy", "requests", "yaml")  # yaml = PyYAML
+
+
+def check_deps() -> bool:
+    """Warn loudly about missing runtime deps.
+
+    PyYAML is the sneaky one: without it endpoints.yaml is silently ignored
+    and the code falls back to built-in DEFAULTS (wrong backend/url) with no
+    error anywhere — indexing then talks to a dead endpoint.
+    """
+    missing = []
+    for mod in REQUIRED_IMPORTS:
+        try:
+            __import__(mod)
+        except ImportError:
+            missing.append(mod)
+    if missing:
+        print(
+            "\n[WARN] missing Python packages: " + ", ".join(missing) + "\n"
+            "       pip install " + " ".join(missing) + "\n"
+            "       Without pyyaml, endpoints.yaml is SILENTLY ignored and\n"
+            "       the wrong default backend/url is used."
+        )
+        return False
+    return True
 
 
 def http_get(url: str, timeout: int = 30):
@@ -123,26 +156,103 @@ def ensure_embed_server(home: Path, profile: str) -> dict:
         runner, server_exe = root / "start_wiki_embed.bat", exe_dir / "llama-server.exe"
         script = (
             f"@echo off\r\n"
-            f'"{server_exe}" -m "{model_file}" --port {EMBED_PORT} '
+            f'"{server_exe}" -m "{model_file}" --port {EMBED_BACKEND_PORT} '
             f"--embedding --pooling last --host 127.0.0.1\r\n"
         )
     else:
         runner, server_exe = root / "start_wiki_embed.sh", exe_dir / "llama-server"
         script = (
             f"#!/bin/sh\n"
-            f'"{server_exe}" -m "{model_file}" --port {EMBED_PORT} '
-            f"--embedding --pooling last --host 127.0.0.1\n"
+            f'"{server_exe}" -m "{model_file}" --port {EMBED_BACKEND_PORT} '
+            f"--embedding {VPS_LLAMA_FLAGS} --pooling last --host 127.0.0.1\n"
         )
     runner.write_text(script, encoding="utf-8")
     if profile == "vps":
         os.chmod(runner, 0o755)
+        write_vps_embed_stack(root, exe_dir, model_file)
+        # vps goes through the wake-on-request proxy (11436); desktop talks
+        # to llama-server directly.
+        url = f"http://127.0.0.1:{EMBED_PORT}/v1/embeddings"
+    else:
+        url = f"http://127.0.0.1:{EMBED_BACKEND_PORT}/v1/embeddings"
 
     return {
         "WIKI_EMBED_BACKEND": "llamaserver",
-        "LLAMASERVER_URL": f"http://127.0.0.1:{EMBED_PORT}/v1/embeddings",
+        "LLAMASERVER_URL": url,
         "LLAMASERVER_MODEL": EMBED_MODEL_FILE.removesuffix(".gguf"),
         "_runner": str(runner),
     }
+
+
+def write_vps_embed_stack(root: Path, exe_dir: Path, model_file: Path):
+    """Emit the hardened systemd stack for a small VPS (see deploy/vps/README.md).
+
+    Generated into <root>/systemd/: rendered llama-embed unit (memory-hardened
+    flags + MemoryMax=800M), wake-on-request proxy, idle-unload watchdog.
+    The proxy listens on 11436 so containers reach it via the docker bridge
+    gateway IP instead of host loopback.
+    """
+    src = REPO_ROOT / "deploy" / "vps"
+    out = root / "systemd"
+    out.mkdir(parents=True, exist_ok=True)
+
+    unit = (src / "llama-embed.service.template").read_text(encoding="utf-8")
+    unit = (unit.replace("@LLAMA_SERVER@", str(exe_dir / "llama-server"))
+                .replace("@MODEL_FILE@", str(model_file))
+                .replace("@LLAMA_DIR@", str(exe_dir)))
+    (out / "llama-embed.service").write_text(unit, encoding="utf-8")
+
+    shutil.copy2(src / "llama_embed_proxy.py", out / "llama_embed_proxy.py")
+    shutil.copy2(src / "llama_embed_watchdog.py", out / "llama_embed_watchdog.py")
+    shutil.copy2(src / "README.md", out / "README.md")
+
+    print(
+        "\nEmbed stack for systemd generated -> "
+        f"{out} (see README.md there)\n"
+        "  cp  " + str(out / "llama-embed.service") + " /etc/systemd/system/\n"
+        "  install -m 755 " + str(out / "llama_embed_proxy.py") + " /usr/local/bin/\n"
+        "  install -m 755 " + str(out / "llama_embed_watchdog.py") + " /usr/local/bin/\n"
+        "  then enable llama-embed + proxy + watchdog services and:\n"
+        "  ufw allow from 172.20.0.0/16 to any port " + EMBED_PORT + " proto tcp"
+    )
+
+
+def write_vps_runtime(home: Path, env: dict):
+    """Generate <home>/wiki.env + cron wrapper sourcing it.
+
+    Cron inside Docker cannot see profiles/*.env from the repo checkout, and
+    a cron line without the chat API key silently indexes nothing. The wrapper
+    also sources the agent's own /opt/data/.env when present (keys live there,
+    never in git).
+    """
+    env_path = home / "wiki.env"
+    lines = [f"# generated by tools/install.py on {time.strftime('%Y-%m-%d %H:%M')}\n"]
+    lines += [f"{k}={v}\n" for k, v in sorted(env.items())]
+    env_path.write_text("".join(lines), encoding="utf-8")
+
+    bin_dir = home / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    wrapper = bin_dir / "wiki_sweep_cron.sh"
+    home_sh = str(home)
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "# wiki v3 sweep cron entry: env first, then the loader.\n"
+        "set -a\n"
+        f'. "{home_sh}/wiki.env" 2>/dev/null\n'
+        "# agent env (chat API keys) — best effort, never stored in git:\n"
+        '[ -f /opt/data/.env ] && . /opt/data/.env\n'
+        "set +a\n"
+        f'PY="{home_sh}/.venv-wiki/bin/python"\n'
+        '[ -x "$PY" ] || PY=python3\n'
+        f'exec "$PY" "{home_sh}/scripts/wiki_v3_sweep_loader.py" '
+        f'>> "{home_sh}/wiki/backups/wiki_sweep.log" 2>&1\n',
+        encoding="utf-8",
+    )
+    os.chmod(wrapper, 0o755)
+    os.makedirs(home / "wiki" / "backups", exist_ok=True)
+    print(f"\nCron runtime generated: {env_path} + {wrapper}")
+    print("Cron line (host crontab, note -u hermes — without it files become root-owned):")
+    print("  0 */3 * * * docker exec -u hermes hermes /bin/sh /opt/data/bin/wiki_sweep_cron.sh")
 
 
 def load_profile_env(profile: str) -> dict:
@@ -272,6 +382,7 @@ def main() -> int:
     scripts, plugins = home / "scripts", home / "plugins"
     print(f"Profile : {args.profile}\nTarget  : {home}")
 
+    check_deps()
     env = {k: v for k, v in load_profile_env(args.profile).items() if "<" not in v}
 
     # --- code ---
@@ -319,6 +430,9 @@ def main() -> int:
         env["NVIDIA_API_KEY"] = args.chat_key
 
     save_profile_env(args.profile, env)
+
+    if args.profile == "vps":
+        write_vps_runtime(home, env)
 
     if not has_key and "NVIDIA_API_URL" not in env:
         print(

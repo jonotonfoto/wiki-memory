@@ -59,17 +59,29 @@ def main() -> int:
         record("WARN", "index db missing", "first sweep will create it")
 
     # 3b. legacy wiki v2 leftovers
+    # entities/ alone is NOT legacy: it is the live v3 page store once the
+    # index DB exists (fresh install -> no DB yet -> suspicious).
     leftovers = [p.name for p in (
         wiki_path / ".facts_pending.jsonl",
         wiki_path / ".facts_done.jsonl",
     ) if p.exists()]
-    if (wiki_path / "entities").is_dir():
+    if (wiki_path / "entities").is_dir() and not db.exists():
         leftovers.append("entities/")
     if leftovers:
         record("WARN", "legacy v2 artifacts still in WIKI_PATH",
                ", ".join(leftovers) + " — re-run tools/install.py to migrate them")
     else:
         record("PASS", "no legacy v2 artifacts")
+
+    # 3c. PyYAML: without it endpoints.yaml is silently ignored and built-in
+    # DEFAULTS (wrong backend/url) are used with no error anywhere.
+    try:
+        import yaml  # noqa: F401
+
+        record("PASS", "pyyaml present")
+    except ImportError:
+        record("FAIL", "pyyaml missing",
+               "endpoints.yaml will be SILENTLY ignored — pip install pyyaml")
 
     # 4. embedding endpoint reachability
     url = model = None
