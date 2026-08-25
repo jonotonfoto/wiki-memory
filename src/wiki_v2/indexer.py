@@ -773,7 +773,8 @@ def main(session_id: str = None) -> int:
         # НЕ запускаем прогон: иначе каждая сессия уйдёт в fallback (fallback-страницы)
         # и продолжит долбить заблокированную модель. chat_available() кэшируется
         # на процесс (один probe). Fail-open: probe сбоит → пропуск прогона.
-        from wiki_v2.gateway import chat_available
+        # (имя берётся из импорта модуля сверху — локальный реимпорт здесь
+        # обходил патч chat_available в тестах, питфолл 2026-08-25)
         if not chat_available():
             print("[SKIP] Chat-модель (Nemotron NVIDIA) недоступна/в rate-limit — прогон пропущен.")
             logger.warning("Chat health-gate: extract-модель недоступна, прогон пропущен")
