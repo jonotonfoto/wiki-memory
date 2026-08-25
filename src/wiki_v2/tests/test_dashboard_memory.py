@@ -202,7 +202,8 @@ def _start_server(port: int) -> subprocess.Popen:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    for _ in range(50):
+    # Холодный Windows-раннер CI: до 60с на старт (питфолл 2026-08-25).
+    for _ in range(600):
         if proc.poll() is not None:
             proc.communicate(timeout=2)
             raise RuntimeError(

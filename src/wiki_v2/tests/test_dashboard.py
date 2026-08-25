@@ -225,7 +225,8 @@ def test_serve_uses_full_api_status(tmp_path, monkeypatch):
     )
     try:
         data = None
-        for _ in range(50):
+        # Холодный Windows-раннер CI: до 60с на старт (питфолл 2026-08-25).
+        for _ in range(600):
             if proc.poll() is not None:
                 out, err = proc.communicate(timeout=2)
                 raise RuntimeError(f"server exited {proc.returncode}: {err.decode(errors='replace')[-500:]}")

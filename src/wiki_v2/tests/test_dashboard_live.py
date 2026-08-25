@@ -68,8 +68,10 @@ def _start_server(port: int, host: str = "127.0.0.1") -> subprocess.Popen:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    # Wait until the server is responsive
-    for _ in range(50):  # up to 5 s
+    # Wait until the server is responsive.
+    # Холодный Windows-раннер CI: первый импорт стека дашборда занимает
+    # заметно больше 5с — ждём до 60с (питфолл 2026-08-25).
+    for _ in range(600):  # up to 60 s
         if proc.poll() is not None:
             out, err = proc.communicate(timeout=2)
             raise RuntimeError(
@@ -83,7 +85,7 @@ def _start_server(port: int, host: str = "127.0.0.1") -> subprocess.Popen:
         except Exception:
             time.sleep(0.1)
     proc.terminate()
-    raise RuntimeError(f"Server did not start on port {port} within 5 s")
+    raise RuntimeError(f"Server did not start on port {port} within 60 s")
 
 
 def _get(path: str, port: int, host: str = "127.0.0.1") -> tuple[int, bytes]:
