@@ -58,6 +58,19 @@ def main() -> int:
     else:
         record("WARN", "index db missing", "first sweep will create it")
 
+    # 3b. legacy wiki v2 leftovers
+    leftovers = [p.name for p in (
+        wiki_path / ".facts_pending.jsonl",
+        wiki_path / ".facts_done.jsonl",
+    ) if p.exists()]
+    if (wiki_path / "entities").is_dir():
+        leftovers.append("entities/")
+    if leftovers:
+        record("WARN", "legacy v2 artifacts still in WIKI_PATH",
+               ", ".join(leftovers) + " — re-run tools/install.py to migrate them")
+    else:
+        record("PASS", "no legacy v2 artifacts")
+
     # 4. embedding endpoint reachability
     url = model = None
     epcfg = {}

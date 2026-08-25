@@ -180,6 +180,73 @@ def backup_dir(target: Path):
     return str(bak)
 
 
+def upgrade_from_v2(wiki_dir: Path) -> bool:
+    """Auto-detect legacy wiki v2 data and migrate it out of the way.
+
+    v2 vectors and page markup are incompatible with v3, so the old state is
+    preserved under <wiki>/backups/ (DB copy, queue files, pages moved aside)
+    and the live DB file is removed — v3 creates a fresh one on first run.
+
+    Returns True when v2 artifacts were found (and handled).
+    """
+    has_v2 = (
+        (wiki_dir / ".index_v2.db").exists()
+        or (wiki_dir / "entities").is_dir()
+        or (wiki_dir / ".facts_pending.jsonl").exists()
+    )
+    if not has_v2:
+        return False
+
+    print(
+        "\n[AUTO ] legacy wiki v2 detected in %s\n"
+        "        v2 vectors/markup are incompatible with v3 -> backing up "
+        "and starting fresh" % wiki_dir
+    )
+
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    bdir = wiki_dir / "backups"
+    bdir.mkdir(parents=True, exist_ok=True)
+
+    db = wiki_dir / ".index_v2.db"
+    if db.exists():
+        dst = bdir / f".index_v2.db.bak.{ts}"
+        try:
+            shutil.copy2(db, dst)
+            db.unlink()
+            print(f"  DB backed up -> {dst.relative_to(wiki_dir)} "
+                  f"({dst.stat().st_size // 1024} KB); fresh DB will be created")
+        except OSError as exc:
+            print(f"  [FAIL] could not back up {db.name}: {exc!r} — leaving it in place")
+            return True
+
+    for qf in (".facts_pending.jsonl", ".facts_done.jsonl"):
+        src = wiki_dir / qf
+        if src.exists():
+            dst = bdir / f"{qf}.bak.{ts}"
+            try:
+                shutil.move(str(src), str(dst))
+                print(f"  queue backed up -> {dst.relative_to(wiki_dir)}")
+            except OSError as exc:
+                print(f"  [WARN] could not move {qf}: {exc!r}")
+
+    entities = wiki_dir / "entities"
+    if entities.is_dir():
+        dst = bdir / f"entities.bak.{ts}"
+        try:
+            shutil.move(str(entities), str(dst))
+            n = sum(1 for _ in dst.rglob("*.md"))
+            print(f"  {n} old page(s) moved to {dst.relative_to(wiki_dir)} (incompatible markup)")
+        except OSError as exc:
+            print(f"  [WARN] could not move entities/: {exc!r} — move it manually")
+
+    print(
+        "  manual checklist:\n"
+        "  - hermes plugins disable llm-extractor   (v2 leftover, duplicate load)\n"
+        "  - disable/replace the old v2 cron sweep (it points at dead paths)"
+    )
+    return True
+
+
 def copy_tree(src: Path, dst: Path):
     if not src.exists():
         print(f"  [WARN] missing in repo, skipped: {src.relative_to(REPO_ROOT)}")
@@ -222,6 +289,15 @@ def main() -> int:
     print(f"Copied  : plugins -> {plugins}/")
     if args.profile == "desktop" and (REPO_ROOT / "desktop-plugins").exists():
         copy_tree(REPO_ROOT / "desktop-plugins", home / "desktop-plugins")
+
+    # --- legacy wiki v2: auto-detect, back up, start fresh ---
+    # An explicit --target scopes EVERYTHING (code AND data) to that directory;
+    # otherwise the data dir comes from the profile env.
+    if args.target:
+        wiki_dir = home / "wiki"
+    else:
+        wiki_dir = Path(os.path.expandvars(env.get("WIKI_PATH", str(home / "wiki"))))
+    upgrade_from_v2(wiki_dir)
 
     # --- embedding backend ---
     if args.with_embed_server:

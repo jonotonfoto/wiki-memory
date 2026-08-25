@@ -1,130 +1,226 @@
-# Installation
+# Installation Manual
 
-One codebase, two supported deployments. Differences live in environment
-variables (`profiles/`), never in the code.
+One codebase, two supported deployments (Windows desktop, Linux VPS/Docker).
+Differences live in environment variables — never in the code.
 
-## Fast install
+---
+
+## Table of contents
+
+1. [Requirements](#requirements)
+2. [Three install scenarios](#three-install-scenarios)
+3. [Extraction backend — required for indexing](#extraction-backend--required-for-indexing)
+4. [What the installer does automatically](#what-the-installer-does-automatically)
+5. [Upgrading from legacy wiki v2](#upgrading-from-legacy-wiki-v2)
+6. [Post-install checklist](#post-install-checklist)
+7. [Verification with doctor](#verification-with-doctor)
+8. [Updating an existing installation](#updating-an-existing-installation)
+9. [Troubleshooting](#troubleshooting)
+
+---
+
+## Requirements
+
+- **Python 3.10+** with `numpy` and `requests`:
+  ```bash
+  pip install numpy requests
+  ```
+- **Hermes Agent** (sessions DB + plugin system) — needed for auto-indexing.
+- An OpenAI-compatible **embeddings endpoint** (for search & indexing):
+  - none yet? use `--with-embed-server` and one will be downloaded (~640 MB);
+  - LM Studio / llama.cpp / NVIDIA API also work.
+- A **chat LLM endpoint** (only for *indexing* — it distills sessions into
+  pages). Search works without it; see
+  [Extraction backend](#extraction-backend--required-for-indexing).
+
+---
+
+## Three install scenarios
+
+### Scenario A — fresh desktop machine (fully automated)
+
+Installs the code AND a local CPU embedding server:
 
 ```bash
 git clone https://github.com/jonotonfoto/wiki-memory.git
 cd wiki-memory
-
-# Fresh desktop machine: code + local CPU embedding server (~640 MB download)
 python tools/install.py --profile desktop --with-embed-server
-
-# Machine that already has an embeddings endpoint (LM Studio, llama.cpp, ...)
-python tools/install.py --profile desktop --embed-url http://127.0.0.1:11435/v1/embeddings
-
-# VPS (Linux/Docker): code into /opt/hermes-data (host view of /opt/data)
-python tools/install.py --profile vps
 ```
 
-### Extraction needs a CHAT endpoint — don't skip this
+What you get: llama.cpp (`Qwen3-Embedding-0.6B-Q8_0`, CPU, port 11435)
+downloaded into `%LOCALAPPDATA%\hermes\wiki-embed\`, plus a ready
+start script. Start the server once per boot:
 
-Embeddings only power *search*. **Indexing** distills sessions into pages using
-a chat LLM. Provide it during install:
+```bat
+%LOCALAPPDATA%\hermes\wiki-embed\start_wiki_embed.bat
+```
+
+### Scenario B — machine that already has an embeddings endpoint
+
+Point the installer at your existing server instead of downloading one:
+
+```bash
+python tools/install.py --profile desktop \
+    --embed-url http://127.0.0.1:11435/v1/embeddings \
+    --embed-model Qwen3-Embedding-0.6B-Q8_0
+```
+
+Works with LM Studio (`http://127.0.0.1:1234/v1/embeddings`), llama.cpp,
+vLLM, or any OpenAI-compatible API.
+
+### Scenario C — VPS (Linux, inside Docker data volume)
+
+```bash
+python tools/install.py --profile vps                 # target /opt/hermes-data
+# or custom location:
+python tools/install.py --profile vps --target /srv/hermes-data
+```
+
+Notes:
+
+- The installer prints the ownership fix you must run on the host:
+  `chown -R 10000:10000 /opt/hermes-data`
+- Small boxes: skip the dashboard, prefer a quantized embedding model on CPU.
+- Host cron must always use the app user:
+  `docker exec -u hermes hermes python /opt/data/scripts/...` — a cron line
+  without `-u` silently recreates root-owned files and breaks writes.
+- `--target` scopes EVERYTHING (code and data dir) under that path.
+
+### Common options
+
+| Flag | Meaning |
+|---|---|
+| `--profile desktop\|vps` | deployment profile (required) |
+| `--target PATH` | override Hermes home (default depends on profile) |
+| `--with-embed-server` | download llama.cpp + embedding model |
+| `--embed-url URL` | use an existing embeddings endpoint |
+| `--embed-model M` | model name at that endpoint |
+| `--chat-url URL` | OpenAI-compatible chat/completions endpoint for extraction |
+| `--chat-model M` | chat model name |
+| `--chat-key KEY` | API key (stored gitignored, never committed) |
+
+---
+
+## Extraction backend — required for indexing
+
+Embeddings power *search*. **Indexing** additionally needs a chat LLM that
+reads raw sessions and writes knowledge pages. Provide it during install:
 
 ```bash
 # free NVIDIA cloud key (build.nvidia.com):
-export NVIDIA_API_KEY=nvapi-...          # or pass --chat-key
+export NVIDIA_API_KEY=nvapi-...        # or pass --chat-key
 
-# or any OpenAI-compatible server (LM Studio, llama-server, vLLM):
+# or any local/OpenAI-compatible server:
 python tools/install.py --profile desktop \
-    --chat-url http://127.0.0.1:1234/v1/chat/completions --chat-model <model> --chat-key KEY
+    --chat-url http://127.0.0.1:1234/v1/chat/completions \
+    --chat-model gpt-oss-20b --chat-key KEY
 ```
 
-If neither is given the installer prints a prominent warning; search still
-works (keyword-only) until a chat backend exists. `tools/doctor.py` reports
-the same as WARN.
+If neither is given, the installer prints a prominent warning and continues:
+search works immediately (keyword-only), indexing starts working the moment a
+chat backend is configured. `tools/doctor.py` reports this state as WARN.
 
-The installer is idempotent — re-running updates and backs up the previous
-copy (`*.bak.<timestamp>`, two newest kept). Resolved values are written to
-`profiles/<profile>.env` (gitignored). It never touches the agent's own
-`.env` or `config.yaml`.
+---
 
-## Common prerequisites
+## What the installer does automatically
 
-- Python 3.10+ with `numpy` and `requests`
-- An OpenAI-compatible embedding endpoint:
-  - **llama.cpp server** (CPU is enough): `Qwen3-Embedding-0.6B-Q8_0`, 1024-dim
-  - or LM Studio, or the NVIDIA API
-- Hermes Agent (sessions DB + plugin system) for auto-indexing
+1. **Backs up** any previous installation (`*.bak.<timestamp>` next to the
+   original, two newest kept).
+2. **Copies code**: core package → `<target>/scripts/wiki_v2`, entry-point
+   wrappers → `<target>/scripts/`, Hermes plugins → `<target>/plugins/`,
+   desktop dashboard button → `<target>/desktop-plugins/` (desktop only).
+3. **Detects a legacy wiki v2 installation** and migrates it out of the way
+   (see next section).
+4. **Resolves configuration**: profile defaults + your flags are written to
+   `profiles/<profile>.env` (gitignored — keys never reach git).
+5. **Prints** the final environment and a post-install checklist.
 
-## Desktop (Windows)
+The installer never edits the agent's own `.env` or `config.yaml`.
 
-1. Clone the repo anywhere.
+---
 
-2. Prepare the environment (see `profiles/desktop.env.example`):
+## Upgrading from legacy wiki v2
 
-   ```bat
-   set WIKI_PATH=%LOCALAPPDATA%\hermes\wiki
-   set WIKI_EMBED_BACKEND=llamaserver
-   ```
+Detected automatically — no flag needed. If `.index_v2.db`, `entities/` or
+`.facts_*.jsonl` exist in the data dir, the installer:
 
-3. Start the embedding server (llama.cpp on CPU):
+1. copies the old DB to `<wiki>/backups/.index_v2.db.bak.<timestamp>`;
+2. moves queue files and old pages to `<wiki>/backups/*.bak.<timestamp>`
+   (old page markup is incompatible with v3 — they are kept purely as
+   reference, not re-indexed);
+3. removes the live DB file so v3 creates a fresh one on first run;
+4. prints two manual cleanup steps: disable the v2 leftover `llm-extractor`
+   plugin and the old v2 cron sweep.
 
-   ```bat
-   scripts\wiki_embed_serve.py
-   ```
+Why not migrate in place: v2 vectors (NVIDIA nv-embedqa-e5-v5) and v3 vectors
+(Qwen3-Embedding-0.6B) are not comparable even at equal dimension, so mixing
+them silently corrupts semantic search. A fresh index is built automatically
+from your sessions by the sweep.
 
-4. Index your history: `scripts\wiki_v3_sweep_loader.py`
+If a file is locked (server running), the step is skipped with a warning —
+nothing is lost; re-run the installer after stopping the server.
 
-5. Install plugins into Hermes:
+---
 
-   - `plugins/wiki-context/` — injects relevant pages into every turn
-   - `plugins/wiki-session-finalize/` — indexes a session right after it closes
-
-6. Optional: dashboard at `http://127.0.0.1:9120`:
-
-   ```bat
-   scripts\wiki_dashboard_serve.py
-   ```
-
-   The desktop button lives in `desktop-plugins/wiki3-dashboard/`.
-
-7. Schedule the sweep loader in cron (every ~3 h) as a safety net.
-
-## VPS (Linux, Docker)
-
-The reference setup runs wiki code inside the existing Hermes container
-(`/opt/data` volume), sharing its CPU-only embedding backend.
-
-1. Copy `src/wiki_v2`, `scripts`, and `plugins` into the container's data
-   volume (e.g. `/opt/hermes-data/scripts/wiki_v2`).
-
-2. Fix ownership so the app user can write:
-
-   ```bash
-   chown -R 10000:10000 /opt/hermes-data/wiki /opt/hermes-data/scripts
-   ```
-
-3. Environment for every invocation (cron AND plugin):
-
-   ```
-   WIKI_PATH=/opt/data/wiki
-   WIKI_EMBED_BACKEND=<your vps backend>
-   ```
-
-   Inject env into launching code — do not edit `.env` of the agent.
-
-4. Cron on the host must always use the app user:
-
-   ```bash
-   docker exec -u hermes hermes python /opt/data/scripts/wiki_v2.indexer ...
-   ```
-
-   A cron line without `-u` silently recreates root-owned files and breaks
-   writes.
-
-5. Memory-constrained boxes: keep `cpus` limits small, prefer a quantized
-   embedding model on CPU; skip the dashboard (it needs RAM).
-
-## Sanity check after install
+## Post-install checklist
 
 ```bash
-PYTHONPATH=src python -c "from wiki_v2 import config; print(config.WIKI_PATH)"
-PYTHONPATH=src python -m wiki_v2.search "test query"
+# 1. plugins
+hermes plugins enable wiki-context            # injects relevant pages each turn
+hermes plugins enable wiki-session-finalize   # indexes a session right after it closes
+
+# 2. background sweep (safety net, every ~3h) — schedule in cron:
+#    desktop: python <target>/scripts/wiki_v3_sweep_loader.py
+#    vps:     docker exec -u hermes hermes python /opt/data/scripts/wiki_v3_sweep_loader.py
+
+# 3. dashboard (desktop only): http://127.0.0.1:9120
+<target>/scripts/wiki_dashboard_serve.py
+
+# 4. verify
+python tools/doctor.py
 ```
 
-Both should run without tracebacks; the search may return few results until
-the first index pass finishes.
+Environment variables from `profiles/<profile>.env` must be visible to every
+launcher (cron AND plugin child processes). On the desktop profile they can be
+set once per user session; on VPS inject them in the cron command line.
+
+---
+
+## Verification with doctor
+
+```bash
+python tools/doctor.py                  # config + endpoints checks
+python tools/doctor.py --search "test"  # + end-to-end search query
+```
+
+Checks performed: package import → data dir writable → index DB present →
+no legacy v2 artifacts → endpoints.yaml loads → embeddings endpoint answers a
+real request → extraction key/endpoint presence. Exit code is 1 only on
+FAIL-level problems; WARN means degraded-but-working.
+
+---
+
+## Updating an existing installation
+
+The installer is idempotent — just re-run it after `git pull`:
+
+```bash
+git pull
+python tools/install.py --profile desktop        # same flags as before
+```
+
+Previous code is backed up automatically; data is never touched (except the
+one-time v2 migration above).
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| doctor: `embed endpoint HTTP 410/404` | wrong backend selected — set the right one via `--embed-url` / profile env (`WIKI_EMBED_BACKEND`) |
+| doctor: `no NVIDIA_API_KEY` WARN | indexing disabled until you add a chat backend (see [Extraction](#extraction-backend--required-for-indexing)) |
+| search returns keyword-only results | embeddings endpoint down or empty index — check embed server, run the sweep |
+| first indexer run crashes: `No such file or directory: ...entities\<slug>.md` | stale pages table pointing at deleted files — ensure ALL six tables were cleared (the v2 auto-migration handles this) |
+| bot/files owned by root (VPS) | cron used no `-u`: fix with `chown -R 10000:10000` and always `docker exec -u hermes ...` |
+| `unlink fails: file locked` during v2 migration | stop the running wiki server/dashboard, re-run the installer |
