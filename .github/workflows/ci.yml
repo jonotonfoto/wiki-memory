@@ -15,6 +15,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       PYTHONPATH: src
+      # Windows-раннеры: консоль cp1252 не кодирует кириллицу — принты
+      # серверов/тестов падают UnicodeEncodeError и дочерние дашборды
+      # «не стартуют». Форсим UTF-8 всем процессам.
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
       # ВАЖНО: НЕ задавать WIKI_EMBED_BACKEND=nvidia здесь. Тесты рассчитаны
       # на офлайн-бэкенд по умолчанию (llamaserver -> connection refused):
       # это детерминированный «embed недоступен», на котором построены
