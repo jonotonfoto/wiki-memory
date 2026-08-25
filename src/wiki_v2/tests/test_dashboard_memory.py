@@ -8,6 +8,9 @@ render_dashboard (табы, #page-memory, CSS/JS).
 import json
 import os
 import socket
+
+# Серверные тесты (внизу файла) выключаются в CI флагом, см. test_dashboard_live.
+_CI_SKIP_SERVER = os.environ.get("WIKI_CI_SKIP_SERVER_TESTS") == "1"
 import subprocess
 import sys
 import time
@@ -218,6 +221,7 @@ def _start_server(port: int) -> subprocess.Popen:
     raise RuntimeError("server did not start")
 
 
+@pytest.mark.skipif(_CI_SKIP_SERVER, reason="server integration disabled in CI")
 def test_route_memory_search_returns_json():
     port = _free_port()
     proc = _start_server(port)
@@ -235,6 +239,7 @@ def test_route_memory_search_returns_json():
         proc.terminate()
 
 
+@pytest.mark.skipif(_CI_SKIP_SERVER, reason="server integration disabled in CI")
 def test_route_memory_search_empty_q_skips():
     port = _free_port()
     proc = _start_server(port)
@@ -248,6 +253,7 @@ def test_route_memory_search_empty_q_skips():
         proc.terminate()
 
 
+@pytest.mark.skipif(_CI_SKIP_SERVER, reason="server integration disabled in CI")
 def test_post_memory_search_not_found():
     port = _free_port()
     proc = _start_server(port)

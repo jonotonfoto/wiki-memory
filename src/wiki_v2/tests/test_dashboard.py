@@ -1,9 +1,13 @@
 """Tests for wiki_v2.dashboard — render_dashboard() + main() + serve() + JS polling."""
 import json
+import os
 import sys
 from pathlib import Path
 
 import pytest
+
+# Серверный тест ниже выключается в CI (см. test_dashboard_live.py).
+_CI_SKIP_SERVER = os.environ.get("WIKI_CI_SKIP_SERVER_TESTS") == "1"
 
 # Ensure the package is importable from scripts root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -193,6 +197,7 @@ def test_render_dashboard_has_js_polling(tmp_path, monkeypatch):
 
 # ── Test 8: serve() отвечает полными данными ────────────────────────────────
 
+@pytest.mark.skipif(_CI_SKIP_SERVER, reason="server integration disabled in CI")
 def test_serve_uses_full_api_status(tmp_path, monkeypatch):
     """serve() /api/status returns FULL data from dashboard_data (not stub)."""
     import subprocess

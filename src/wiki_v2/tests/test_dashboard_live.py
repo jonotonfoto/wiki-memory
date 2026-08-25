@@ -16,6 +16,14 @@ from pathlib import Path
 
 import pytest
 
+# Интеграционные тесты поднимают реальный subprocess+порт. На холодных CI-
+# раннерах они нестабильны (медленный импорт стека, особенности файрвола) —
+# в CI выключаются флагом WIKI_CI_SKIP_SERVER_TESTS=1, локально гоняются.
+pytestmark = pytest.mark.skipif(
+    os.environ.get("WIKI_CI_SKIP_SERVER_TESTS") == "1",
+    reason="subprocess+port integration disabled in CI",
+)
+
 # Ensure the package is importable from scripts root
 SCRIPTS_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(SCRIPTS_ROOT))
