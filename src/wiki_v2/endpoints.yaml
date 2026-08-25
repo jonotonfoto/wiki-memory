@@ -1,0 +1,53 @@
+# Единый конфиг эндпоинтов Wiki v3.
+# ЕДИНСТВЕННОЕ место, где меняются все сетевые эндпоинты и модели.
+# Распространяется по системе env-переменными через endpoints.apply()
+# (см. wiki_v2/endpoints.py). Здесь НЕ хранятся ключи/секреты.
+#
+# ├─ embed   → какой сервис считает эмбеддинги (поиск + индексация)
+# └─ chat    → эндпоинт экстракции/индексации (LLM-генерация фактов)
+
+embed:
+  # backend: nvidia | lmstudio | llamaserver
+  # ОДИН бэкенд на ВСЮ базу (векторы разных моделей несопоставимы даже при равном dim).
+  # Desktop: llamaserver = llama.cpp на CPU (Qwen3-Embedding Q8_0), VRAM не занимает.
+  backend: llamaserver
+  dim: 1024
+
+  nvidia:
+    url: https://integrate.api.nvidia.com/v1/embeddings
+    model: nvidia/nv-embedqa-e5-v5
+
+  lmstudio:
+    url: http://127.0.0.1:1234/v1/embeddings
+    model: peteram4/text-embedding-qwen3-embedding-0.6b@q8_0
+
+  llamaserver:
+    url: http://127.0.0.1:11435/v1/embeddings
+    model: Qwen3-Embedding-0.6B-Q8_0
+
+chat:
+  # Активный chat/extract эндпоинт → NVIDIA_API_URL / NVIDIA_CHAT_MODEL.
+  # Здесь (production desktop) — облако NVIDIA llama-3.3-nemotron-super-49b-v1.
+  # ПРИМЕЧАНИЕ: nemotron-3-super-120b-a12b недоступен этому ключу (404 Function not
+  # found for account), поэтому взят рабочий super-49b (валидный JSON на русском).
+  url: https://integrate.api.nvidia.com/v1/chat/completions
+  model: nvidia/llama-3.3-nemotron-super-49b-v1
+
+  # Облако: БЕЗ параллелизма (пачки по 4 потока провоцируют 429/блокировку на часы)
+  # и с паузой между вызовами (free-tier NIM ≈ 40 RPM → 1.5s между запросами).
+  # Значения раздаются в WIKI_CHAT_PARALLEL / WIKI_CHAT_MIN_INTERVAL_S.
+  parallel: 1
+  min_interval_s: 1.5
+
+  # Локальный fallback (LM Studio) — если нужно вернуться на локаль.
+  # НЕ применяется автоматически (только правка url/model активного chat).
+  local:
+    url: http://127.0.0.1:1234/v1/chat/completions
+    model: gpt-oss-20b
+    parallel: 4
+    min_interval_s: 0.0
+
+  # Запасной вариант (другая облачная nemotron / VPS).
+  nvidia_fallback:
+    url: https://integrate.api.nvidia.com/v1/chat/completions
+    model: nvidia/nemotron-3-super-120b-a12b

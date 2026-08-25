@@ -1,0 +1,23 @@
+# --- junk / local state ---
+_archive/
+.venv-test/
+.ruff_cache/
+.playwright-mcp/
+.kilo/
+__pycache__/
+*.pyc
+*.bak.*
+node_modules/
+
+# --- data / databases / logs (never commit) ---
+*.db
+*.db-journal
+*.sqlite*
+*.jsonl
+logs/
+*.log
+
+# --- local profiles & secrets ---
+profiles/*.env
+!profiles/*.env.example
+.env
