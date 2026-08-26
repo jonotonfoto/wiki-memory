@@ -40,10 +40,13 @@
   отражает (наблюдается месяцами при рабочем Telegram/dashboard).
 - **«Previous gateway life exited UNCLEANLY»** после рестарта — ожидаемо
   (SIGKILL при `docker restart`).
-- **Нет numpy/requests в контейнере**: семантический канал session-плагинов
-  уходит в legacy-fallback (`АР-6 failed (No module named 'numpy')`) —
-  fail-open по дизайну, контекст всё равно вставляется. Установка numpy в
-  контейнер — отдельное решение (пропадёт при recreate).
+- **numpy в контейнере**: нужен семантическому каналу session-плагинов (АР-6);
+  без него канал уходит в legacy-fallback (`АР-6 failed (No module named
+  'numpy')` — fail-open по дизайну). Образ ставится БЕЗ numpy и pip, поэтому:
+  - разово: `docker exec hermes uv pip install --python /opt/hermes/.venv/bin/python numpy==2.4.3`
+    (uv есть в образе, venv принадлежит root, контейнер выполняется от root);
+  - долговечно: `/opt/hermes-data/cont-init.d/101-ensure-wiki-deps.sh`
+    (идемпотентная установка при старте, переживает recreate контейнера).
 - **RAM 2 ГБ**: перед установкой тяжёлых сервисов мерить память
   (`free -h`, `docker stats --no-stream`) — риск OOM-killer.
 
