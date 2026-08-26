@@ -10,13 +10,28 @@ _META_HEADER_RE = re.compile(
 def is_meta_block(block):
     """Мета-блок (облако тегов): заголовок «Темы/Сущности/Концепции/Теги» +
     только буллеты без прозы. Нужен ИНДЕКСАЦИИ (расширение поиска через темы),
-    но не инжекту в контекст модели."""
+    но не инжекту в контекст модели.
+
+    Фикс 2026-08-26: распознаём и ОСКОЛКИ облака тегов без заголовка —
+    гигантский блок (> chunk_size) режется с overlap'ом, и осколок вида
+    «визуализации\\n- анимация\\n- …» или «хвост фразы\\n- MCP (Protocol)\\n- …»
+    (заголовка нет) раньше не считался мета-блоком, получал вектор и выигрывал
+    конкурс чанков по косинусу (облако перенасыщено словами запроса).
+    Признак осколка: заголовка нет, строк ≥3 и ≥80% из них — буллеты
+    (первая строка может быть хвостом фразы от overlap-разреза).
+    """
     lines = [l for l in block.splitlines() if l.strip()]
     if not lines:
         return True
-    if not _META_HEADER_RE.match(lines[0].strip()):
+    first = lines[0].strip()
+    if _META_HEADER_RE.match(first):
+        return all(l.lstrip().startswith(("-", "*", "•")) for l in lines[1:] if l.strip())
+    if first.startswith("#"):
         return False
-    return all(l.lstrip().startswith(("-", "*", "•")) for l in lines[1:] if l.strip())
+    bullets = sum(1 for l in lines if l.lstrip().startswith(("-", "*", "•")))
+    if len(lines) >= 3 and bullets * 5 >= len(lines) * 4:
+        return True
+    return False
 
 
 def trim_meta_blocks(text):

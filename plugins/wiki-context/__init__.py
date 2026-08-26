@@ -92,6 +92,11 @@ _SANITIZE_PAIRS = [
     ("}}", ""),
 ]
 
+# Косинус победившего чанка последнего поиска (для search-события и
+# честной метрики релевантности на графике дашборда). top_score в событии —
+# RRF-fusion скор (~0.02–0.04 по построению), а не релевантность 0–1.
+_LAST_CHUNK_COS = {"cos": 0.0}
+
 
 def _load_config() -> dict:
     """Читает config.json каждый раз — свежие настройки без перезапуска."""
@@ -530,15 +535,40 @@ def _build_context_main(page: dict, query: str = "") -> str:
                     # содержательный чанк (топ-1 косинуса). Облака тегов
                     # (Темы/Сущности/Концепции) нужны ПОИСКУ и карте ссылок —
                     # из контекста модели они вырезаются.
-                    content = {i: sc for i, sc in picked.items()
-                               if trim_meta_blocks(full[spans[i][0]:spans[i][1]])}
+                    # Фикс 2026-08-26: конкурс идёт по ИНЖЕКТИРУЕМОМУ тексту —
+                    # фронтматтер (page_chunk:0) и осколки облаков тегов
+                    # отсеиваются ДО выбора победителя. Раньше фильтр был
+                    # trim_meta_blocks(спан)!=«», поэтому YAML-чанк (после
+                    # _strip_frontmatter → пустота) и осколок облака без
+                    # заголовка выигрывали по косинусу, и инжект оставался
+                    # «шапка без чанка» или со списком тегов вместо текста.
+                    # Доп. (2026-08-26, живой кейс): мелкие блоки пакуются в
+                    # окно ≤500, поэтому chunk:0 = «YAML + H1 + резюме» — после
+                    # strip это ровно интро; по title-словам он выигрывает
+                    # конкурс, и живой текст не добавляется. Кандидат обязан
+                    # добавлять ≥80 символов ПОВЕРХ интро.
+                    _intro = page_intro(body)
+
+                    def _injectable(i):
+                        t = _strip_frontmatter(full[spans[i][0]:spans[i][1]])
+                        t = trim_meta_blocks(t).strip()
+                        if len(t) < 80:
+                            return ""
+                        if _intro:
+                            tl, il = t.lower(), _intro.lower()
+                            rest = tl.replace(il, "", 1) if il in tl else tl
+                            if len(rest.strip()) < 80:
+                                return ""
+                        return t
+
+                    content = {i: sc for i, sc in picked.items() if _injectable(i)}
                     if not content:
                         reason = "no-relevant-chunks"
                     else:
                         best_idx = max(content.items(), key=lambda kv: kv[1])[0]
-                        s, e = spans[best_idx]
-                        chunk_txt = trim_meta_blocks(full[s:e])
+                        chunk_txt = _injectable(best_idx)
                         chunk_score = content[best_idx]
+                        _LAST_CHUNK_COS["cos"] = float(chunk_score)
 
                         # СЛОЙ SESSION_CHUNK (2026-08-25): нарратив сырой переписки.
                         # Самая длинная сессия страницы; чанки уже в БД
@@ -773,6 +803,7 @@ def _build_context_maybe_cached(user_message: str) -> tuple:
     decision = _gate_decision(user_message)
     if decision == "skip":
         return "", False
+    _LAST_CHUNK_COS["cos"] = 0.0
     # Кэш: если похожий вопрос уже искали — отдаём сохранённый результат
     cached = _cache_get(user_message)
     if cached is not None:
@@ -785,6 +816,13 @@ def _build_context_maybe_cached(user_message: str) -> tuple:
         hits, pages = search(user_message, k=cfg["top_k"])
         duration_ms = (time.time() - t0) * 1000.0
 
+        # КОНТЕКСТ главной строится ДО записи события, чтобы косинус
+        # победившего чанка (chunk_cos) попал в это же search-событие.
+        main_ctx = ""
+        main_page = pages.get(hits[0][0]) if hits else None
+        if hits and decision != "low_confidence" and main_page:
+            main_ctx = _build_context_main(main_page, user_message)
+
         try:
             if WIKI_SCRIPTS not in sys.path:
                 sys.path.insert(0, WIKI_SCRIPTS)
@@ -794,20 +832,18 @@ def _build_context_maybe_cached(user_message: str) -> tuple:
                 hits=len(hits) if hits else 0,
                 top_slug=hits[0][0] if hits else "",
                 top_score=hits[0][1] if hits else 0.0,
-                context_chars=0,
+                context_chars=len(main_ctx),
                 duration_ms=duration_ms,
                 source=hits[0][2] if hits else "",
                 session_id="",
                 gate_decision=decision,
+                chunk_cos=_LAST_CHUNK_COS["cos"],
             )
         except Exception as _exc:
             logger.debug("wiki-context log_event failed: %s", _exc)
 
         if not hits:
             return "", False
-        # главная = топ-1 (наилучший хит)
-        main_slug = hits[0][0]
-        main_page = pages.get(main_slug)
         # карта = следующие страницы (НЕ главная), релевантные
         card_slugs = [s for s, _, _ in hits[1:1 + cfg["wiki_card_pages"]]]
         card_pages = {s: pages[s] for s in card_slugs if s in pages}
@@ -818,8 +854,6 @@ def _build_context_maybe_cached(user_message: str) -> tuple:
             parts.append("Карта связанных страниц (ссылки + теги; для фактов — read_file по пути):\n" + card)
         # low_confidence: НЕ навязываем топ-чанк — только карта/минимум
         if decision != "low_confidence":
-            # КОНТЕКСТ главной (релевантные чанки по запросу)
-            main_ctx = _build_context_main(main_page, user_message) if main_page else ""
             if main_ctx:
                 parts.append(main_ctx)
         context = "\n\n".join(parts)

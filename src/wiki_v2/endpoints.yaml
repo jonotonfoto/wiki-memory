@@ -27,11 +27,16 @@ embed:
 
 chat:
   # Активный chat/extract эндпоинт → NVIDIA_API_URL / NVIDIA_CHAT_MODEL.
-  # Здесь (production desktop) — облако NVIDIA llama-3.3-nemotron-super-49b-v1.
-  # ПРИМЕЧАНИЕ: nemotron-3-super-120b-a12b недоступен этому ключу (404 Function not
-  # found for account), поэтому взят рабочий super-49b (валидный JSON на русском).
+  # Здесь (production desktop) — облако NVIDIA. 2026-08-26: llama-3.3-nemotron-super-49b-v1
+  # снят с API (410 Gone, модели больше нет в /v1/models), nemotron-3-super-120b и другие
+  # крупные недоступны ключу (404 Function not found for account). Из доступных на этом
+  # аккаунте модель, дающая валидный JSON на русском для экстракции, — llama-3.2-11b-vision-instruct.
   url: https://integrate.api.nvidia.com/v1/chat/completions
-  model: nvidia/llama-3.3-nemotron-super-49b-v1
+  model: meta/llama-3.2-11b-vision-instruct
+  # Резервные chat-модели на случай снятия активной с API (2026-08-26): endpoints.apply()
+  # кладёт их в NVIDIA_CHAT_MODEL_FALLBACK, chat_completion перебирает при 404/410.
+  # Сейчас единственный надёжный для JSON-экстракции на этом аккаунте — активный.
+  fallback: []
 
   # Облако: БЕЗ параллелизма (пачки по 4 потока провоцируют 429/блокировку на часы)
   # и с паузой между вызовами (free-tier NIM ≈ 40 RPM → 1.5s между запросами).

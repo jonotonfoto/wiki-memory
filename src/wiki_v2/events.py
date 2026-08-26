@@ -118,6 +118,7 @@ def log_event(
     source: str = "unknown",
     session_id: str = "",
     gate_decision: str = "",
+    chunk_cos: float = 0.0,
 ) -> None:
     """Log a single search event to wiki_search_events.jsonl.
 
@@ -130,7 +131,7 @@ def log_event(
     top_slug : str
         Slug of the top-ranked page.
     top_score : float
-        Score of the top-ranked page.
+        Score of the top-ranked page (RRF-fusion, ~0.02–0.04 by design).
     context_chars : int
         Number of context characters returned.
     duration_ms : float
@@ -139,6 +140,10 @@ def log_event(
         Search source (e.g. 'semantic', 'keyword', 'bm25').
     session_id : str
         Hermes session ID.
+    chunk_cos : float
+        Cosine of the winning content chunk (0–1); 0 if no chunk was chosen.
+        Фикс 2026-08-26: честная метрика релевантности для графика дашборда —
+        top_score (fusion) на шкале 0–1 всегда выглядит «почти нулём».
 
     Never raises — wraps everything in try/except + logger.
     """
@@ -162,6 +167,7 @@ def log_event(
             "source": source,
             "session_id": session_id,
             "gate_decision": gate_decision,
+            "chunk_cos": chunk_cos,
         }
         _append_line(path, obj)
     except Exception as exc:

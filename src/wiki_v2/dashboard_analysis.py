@@ -135,7 +135,12 @@ def _inject_relevance_series(events: list[dict], inject_ts: list[float], tol_s: 
         
         for ev in evs:
             ev_ts = float(ev["ts"])
-            top_score = float(ev.get("top_score", 0.0) or 0.0)
+            # Фикс 2026-08-26: chunk_cos (косинус топ-чанка, 0–1) честнее
+            # top_score — RRF-fusion скор ~0.02–0.04 по построению и на шкале
+            # 0–1 всегда выглядит «почти нулём». Старые события без chunk_cos
+            # остаются на fusion-значениях (смешанная шкала в истории).
+            chunk_cos = float(ev.get("chunk_cos", 0.0) or 0.0)
+            top_score = chunk_cos if chunk_cos > 0.0 else float(ev.get("top_score", 0.0) or 0.0)
             
             while j < len(injs) and injs[j] < ev_ts - tol_s:
                 j += 1

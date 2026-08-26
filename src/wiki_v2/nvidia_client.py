@@ -24,6 +24,14 @@ EMBED_URL = os.environ.get("NVIDIA_EMBED_URL", "https://integrate.api.nvidia.com
 DEFAULT_CHAT_MODEL = os.environ.get("NVIDIA_CHAT_MODEL", "nvidia/nemotron-3-super-120b-a12b")
 DEFAULT_EMBED_MODEL = os.environ.get("NVIDIA_EMBED_MODEL", "nvidia/nv-embedqa-e5-v5")
 
+# Цепочка chat-моделей на случай, если активная снята с API (410 Gone, 2026-08-26):
+# NVIDIA закрывает модели без предупреждения, а стейл NVIDIA_CHAT_MODEL в окружении
+# может перебить yaml. Список кладёт endpoints.apply() из chat.model + chat.fallback.
+CHAT_FALLBACK_MODELS = [
+    m.strip() for m in os.environ.get("NVIDIA_CHAT_MODEL_FALLBACK", "").split(",")
+    if m.strip()
+]
+
 # ── Circuit breaker (этап 1.5, АР-3): reuse TCP + счётчик ошибок подряд ──
 # 3 ошибки подряд → режим degraded: вызовы возвращают None БЕЗ HTTP (fast fail).
 # Сброс после 1 успеха. Свой счётчик (~20 строк) — без библиотек.
@@ -164,67 +172,90 @@ def chat_completion(system: str, user: str, model: str = DEFAULT_CHAT_MODEL,
                     empty_reasoning_is_error: bool = False):
     """Return assistant content string, or None after exhausting retries."""
     payload = {
-        "model": model,
+        "model": DEFAULT_CHAT_MODEL,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
         "max_tokens": max_tokens,
         "temperature": temperature,
-        # НЕ передаём reasoning_effort и НЕ включаем response_format для reasoning-моделей
+        # Не передаём reasoning_effort и НЕ включаем response_format для reasoning-моделей
         # (gpt-oss и др.): они заставляют модель применять схему к reasoning-потоку,
-        # оставляя content пустым (известный баг LM Studio #1773). Нужно дать модели
+        # оставляя content пустым (известная баг LM Studio). Нужно дать модели
         # достаточно max_tokens, чтобы она завершила мышление и вывела JSON в content.
     }
-    for attempt in range(max_retries + 1):
-        if _fast_fail():
-            logger.debug("[BREAKER] API degraded — пропуск HTTP (fast fail)")
-            return None
-        if _chat_rate_blocked():
-            logger.warning("[CHAT] rate-limit/блокировка активна — fail-open (None)")
-            return None
-        _chat_throttle()
-        try:
-            resp = _SESSION.post(API_URL, headers=_headers(), json=payload, timeout=timeout)
-            resp.raise_for_status()
-            _record_success()
-            # ── metrics: chat_api_calls_total ───────────────────────
-            try:
-                from wiki_v2 import metrics as _m
-                _m.inc("chat_api_calls_total")
-            except Exception:
-                pass  # fail-open
-            msg = resp.json()["choices"][0]["message"]
-            content = msg.get("content") or ""
-            # Reasoning-модели (gpt-oss и др.) могут класть весь ответ в `reasoning`,
-            # оставляя `content` пустым (особенно на длинных промптах).
-            if not content.strip():
-                reasoning = msg.get("reasoning") or ""
-                if empty_reasoning_is_error and reasoning.strip():
-                    logger.debug(
-                        "chat_completion: content пуст, reasoning непустой — "
-                        "empty_reasoning_is_error=True, возвращаю None без retry"
-                    )
-                    # НЕ _record_fail(): reasoning-empty — НЕ сетевая ошибка (API
-                    # отвечает). Раньше 3 таких подряд открывали breaker (degraded)
-                    # и ВСЕ дальнейшие chat-вызовы fast-fail в None → массовый
-                    # fallback («экстракция встала»), хотя связь была жива.
-                    return None
-                content = reasoning
-            logger.debug("chat_completion raw response (model=%s): %s", model, content)
-            return content
-        except Exception as e:
-            status = getattr(getattr(e, "response", None), "status_code", None)
-            if status in (429, 503):
-                # rate-limited / перегружено: ретраи УСУГУБЛЯЮТ (продлевают блокировку).
-                # Ставим кулдаун и fail-open (None) — экстракция уйдёт в fallback.
-                _extend_chat_block(60)
-                logger.warning("[CHAT] rate-limit/блокировка HTTP %s — кулдаун 60с, fail-open", status)
-                _record_fail()
+    # Цепочка кандидатов (2026-08-26): активная модель + резервные. NVIDIA снимает
+    # chat-модели с API без предупреждения (410 Gone), а стейл NVIDIA_CHAT_MODEL в
+    # окружении мог перебить yaml (setdefault). При 404/410 уходим на следующий резерв.
+    primary = model or DEFAULT_CHAT_MODEL
+    order = [primary]
+    for _m in CHAT_FALLBACK_MODELS:
+        if _m and _m != primary and _m not in order:
+            order.append(_m)
+    for oi, m in enumerate(order):
+        payload["model"] = m
+        for attempt in range(max_retries + 1):
+            if _fast_fail():
+                logger.debug("[BREAKER] API degraded — пропуск HTTP (fast fail)")
                 return None
-            logger.warning("[WARN] chat attempt %d/%d: %s", attempt + 1, max_retries + 1, e)
-            if attempt < max_retries:
-                time.sleep(5)
+            if _chat_rate_blocked():
+                logger.warning("[CHAT] rate-limit/получение активна — fail-open (None)")
+                return None
+            _chat_throttle()
+            try:
+                resp = _SESSION.post(API_URL, headers=_headers(), json=payload, timeout=timeout)
+                resp.raise_for_status()
+                _record_success()
+                # ── metrics: chat_api_calls_total ───────────────────────
+                try:
+                    from wiki_v2 import metrics as _m
+                    _m.inc("chat_api_calls_total")
+                except Exception:
+                    pass  # fail-open
+                msg = resp.json()["choices"][0]["message"]
+                content = msg.get("content") or ""
+                # Reasoning-модели (gpt-oss и др.) могут класть весь ответ в `reasoning`,
+                # оставляя `content` пустым (особенно на длинных промптах).
+                if not content.strip():
+                    reasoning = msg.get("reasoning") or ""
+                    if empty_reasoning_is_error and reasoning.strip():
+                        logger.debug(
+                            "chat_completion: content пуст, reasoning непустой — "
+                            "empty_reasoning_is_error=True, возвращаю None без retry"
+                        )
+                        # НЕ _record_fail(): reasoning-empty — НЕ сетевая ошибка (API
+                        # отвечает). Раньше 3 таких подряд открывали breaker (degraded)
+                        # и ВСЕ дальнейшие chat-вызовы fast-fail -> None -> массовый
+                        # fallback в контексте, хотя связь была жива.
+                        return None
+                    content = reasoning
+                logger.debug("chat_completion raw response (model=%s): %s", m, content)
+                return content
+            except Exception as e:
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status in (429, 503):
+                    # rate-limited / перегружено: ретраи УСУГУБЛЯЮТ (продлевают блокировку).
+                    # Ставим кулдаун и fail-open (None) — экстракция уйдёт в fallback.
+                    _extend_chat_block(60)
+                    logger.warning("[CHAT] rate-limit/блокировка HTTP %s — кулдаун 60с, fail-open", status)
+                    _record_fail()
+                    return None
+                if status in (404, 410):
+                    # Модель снята с API или недоступна аккаунту -> следующий резерв.
+                    _record_fail()
+                    if oi < len(order) - 1:
+                        logger.warning(
+                            "[CHAT] модель %s недоступна (HTTP %s), переключение на резерв %s",
+                            m, status, order[oi + 1])
+                        break
+                    logger.warning("[CHAT] все модели из цепочки недоступны (HTTP %s)", status)
+                    break
+                logger.warning("[WARN] chat attempt %d/%d: %s", attempt + 1, max_retries + 1, e)
+                if attempt < max_retries:
+                    time.sleep(5)
+        else:
+                # ретраи модели исчерпаны без 404/410 — перебирать резервы не нужно
+                break
     _record_fail()
     # ── metrics: chat_api_errors_total ────────────────────────────
     try:

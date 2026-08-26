@@ -14,6 +14,8 @@ sessions). Для страницы берётся ОДНА — самая дли
 Использование (живой каталог):
     python -m wiki_v2.session_chunk_backfill --dry-run
     python -m wiki_v2.session_chunk_backfill [--limit 5] [--max-chunks 48]
+    python -m wiki_v2.session_chunk_backfill --missing-only  # только страницы
+                                                             # без session_chunk
 
 fail-open: сессия без текста/без страницы/сбой эмбеда — пропуск с логом.
 """
@@ -43,7 +45,13 @@ from wiki_v2.index_db import IndexDB  # noqa: E402
 from wiki_v2.indexer import session_raw_text  # noqa: E402
 from wiki_v2.logging_setup import logger  # noqa: E402
 
-BATCH = 24
+# Суб-батч эмбеддингов: сколько текстов в ОДИН embed()-вызов. Батч больше дефолтного
+# 8 не укладывался в клиентский таймаут 60с на CPU (проверено 2026-08-26: батч 24
+# на странице 270KB ~= 531 токен/спан → таймаут и пустой ответ). Зеркалит indexer.
+try:
+    EMBED_SUBBATCH = max(1, int(os.environ.get("WIKI_EMBED_SUBBATCH", "8")))
+except (TypeError, ValueError):
+    EMBED_SUBBATCH = 8
 
 
 def _primary_sessions(db: IndexDB) -> dict:
@@ -70,12 +78,20 @@ def _even_sample(total: int, cap: int) -> list:
     return idxs
 
 
-def backfill(limit=None, max_chunks=48, min_raw=2000, dry=False):
+def backfill(limit=None, max_chunks=48, min_raw=2000, dry=False,
+             missing_only=False):
     from wiki_v2 import config
     db = IndexDB(str(config.WIKI_PATH / ".index_v2.db"))
     try:
         primary = _primary_sessions(db)
         slugs = sorted(primary)
+        # missing_only (2026-08-26): пропускать страницы, у которых нарративные
+        # векторы session_chunk:* УЖЕ есть (повторный прогон не переэмбеддит
+        # залитое — экономит время и держит результат детерминированным).
+        if missing_only:
+            have = {r[0] for r in db.conn.execute(
+                "SELECT DISTINCT slug FROM embeddings WHERE kind LIKE 'session_chunk:%'")}
+            slugs = [s for s in slugs if s not in have]
         if limit:
             slugs = slugs[:limit]
         done = skipped = 0
@@ -94,11 +110,17 @@ def backfill(limit=None, max_chunks=48, min_raw=2000, dry=False):
                 continue
             from wiki_v2.gateway import embed
             written = 0
-            for b0 in range(0, len(pairs), BATCH):
-                batch = pairs[b0:b0 + BATCH]
+            for b0 in range(0, len(pairs), EMBED_SUBBATCH):
+                batch = pairs[b0:b0 + EMBED_SUBBATCH]
                 vecs = embed([t for _, t in batch], input_type="passage")
                 if not vecs:
-                    break
+                    # 2026-08-26: молчаливый break маскировал недоступность
+                    # embed-бэкенда — прогон печатал «записано 0» без причины.
+                    logger.warning(
+                        "session_chunk_backfill: embed вернул пусто "
+                        "(бэкенд недоступен/таймаут?) slug=%s batch=%s",
+                        slug, b0 // EMBED_SUBBATCH)
+                    continue
                 for (i, _t), v in zip(batch, vecs):
                     if v is not None:
                         db.set_embedding(slug, np.asarray(v, dtype=np.float32),
@@ -117,8 +139,11 @@ def main():
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--max-chunks", type=int, default=48)
     ap.add_argument("--min-raw", type=int, default=2000)
+    ap.add_argument("--missing-only", action="store_true",
+                    help="только страницы без session_chunk-векторов")
     a = ap.parse_args()
-    backfill(limit=a.limit, max_chunks=a.max_chunks, min_raw=a.min_raw, dry=a.dry_run)
+    backfill(limit=a.limit, max_chunks=a.max_chunks, min_raw=a.min_raw,
+             dry=a.dry_run, missing_only=a.missing_only)
 
 
 if __name__ == "__main__":

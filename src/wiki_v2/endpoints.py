@@ -140,19 +140,34 @@ def apply(env: dict | None = None) -> None:
     target = env if env is not None else os.environ
     cfg = load()
     for var, path, default in _ENV_MAP:
-        cur: Any = cfg
+        value: Any = cfg
         found = True
         if isinstance(path, tuple):
             for part in path:
-                if isinstance(cur, dict) and part in cur:
-                    cur = cur[part]
+                if isinstance(value, dict) and part in value:
+                    value = value[part]
                 else:
                     found = False
                     break
-        value = cur if found else default
+        if not found:
+            value = default
         if value is None:
             continue
         target.setdefault(var, str(value))
+    # Защита от «правильная модель снята с API» (2026-08-26): NVIDIA закрыла
+    # chat-модель без предупреждения (410 Gone), а стейл-значение NVIDIA_CHAT_MODEL
+    # в унаследованном env перебивало yaml (setdefault выше). Всегда экспортируем
+    # цепочку моделей ИЗ yaml (первичная chat.model + chat.fallback) в отдельный
+    # ключ, который НЕ зависит от окружения: gateway при 404/410 перебирает её.
+    chat = cfg.get("chat") or {}
+    chain: list = []
+    if chat.get("model"):
+        chain.append(chat["model"])
+    for m in chat.get("fallback") or []:
+        if m and m not in chain:
+            chain.append(m)
+    if chain:
+        target.setdefault("NVIDIA_CHAT_MODEL_FALLBACK", ",".join(chain))
 
 
 def chat_endpoint() -> tuple[str, str]:
