@@ -47,6 +47,13 @@ if not WIKI_SCRIPTS:
     else:
         WIKI_SCRIPTS = "/opt/data/scripts"
 
+# Hermes грузит плагин через spec_from_file_location и НЕ добавляет scripts в
+# sys.path — первый же ленивый `from wiki_v2 import ...` в хуке падал с
+# ModuleNotFoundError (регрессия с 19.08, ~354 ошибки в agent.log/errors.log).
+# Один sys.path-встав на модуле закрывает все ленивые импорты плагина.
+if os.path.isdir(WIKI_SCRIPTS) and WIKI_SCRIPTS not in sys.path:
+    sys.path.insert(0, WIKI_SCRIPTS)
+
 # Путь к wiki (где .index_v2.db и entities/)
 WIKI_PATH = os.environ.get("WIKI_PATH", str(_HOME / "wiki"))
 
