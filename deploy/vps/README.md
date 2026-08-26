@@ -12,6 +12,7 @@ exists because something broke without it.
 | `llama-embed.service.template` | systemd unit with memory-hardened llama-server flags |
 | `llama_embed_proxy.py` | wake-on-request proxy 11436 → 11435 with restart-window retries |
 | `llama_embed_watchdog.py` | unloads the model after idle, but never mid-indexing |
+| `OPERATIONS.md` | ops runbook: server map (clone/runtime/container paths), standard update procedure, known non-bugs (unhealthy :8642, numpy-less legacy fallback), Windows SSH client pitfalls |
 
 ## The incident, in one paragraph
 
